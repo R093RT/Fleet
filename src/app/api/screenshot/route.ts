@@ -2,11 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { execSync } from 'child_process'
 import { existsSync, mkdirSync } from 'fs'
 import path from 'path'
+import { z } from 'zod'
+
+const ScreenshotSchema = z.object({ agentId: z.string(), url: z.string().url() })
 
 const SCREENSHOT_DIR = path.join(process.cwd(), 'public', 'screenshots')
 
 export async function POST(req: NextRequest) {
-  const { agentId, url } = await req.json() as { agentId: string, url: string }
+  const parsed = ScreenshotSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
+  }
+  const { agentId, url } = parsed.data
 
   // Ensure screenshot directory exists
   if (!existsSync(SCREENSHOT_DIR)) {
@@ -36,7 +43,7 @@ export async function POST(req: NextRequest) {
         path: null,
       })
     }
-  } catch (e: any) {
-    return NextResponse.json({ success: false, error: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    return NextResponse.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 })
   }
 }

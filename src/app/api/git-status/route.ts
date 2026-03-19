@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { execSync } from 'child_process'
 import { existsSync } from 'fs'
 import path from 'path'
+import { z } from 'zod'
+
+const GitStatusSchema = z.object({ paths: z.array(z.string()) })
 
 function getGitInfo(repoPath: string) {
   if (!existsSync(path.join(repoPath, '.git'))) {
@@ -45,10 +48,13 @@ function getGitInfo(repoPath: string) {
 }
 
 export async function POST(req: NextRequest) {
-  const { paths } = await req.json() as { paths: string[] }
+  const parsed = GitStatusSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
+  }
 
   const results: Record<string, ReturnType<typeof getGitInfo>> = {}
-  for (const p of paths) {
+  for (const p of parsed.data.paths) {
     results[p] = getGitInfo(p)
   }
 

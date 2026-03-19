@@ -1,17 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { execSync, spawn } from 'child_process'
 import path from 'path'
+import { z } from 'zod'
+import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
+
+const SpawnRequestSchema = z.object({
+  agentId: z.string(),
+  repoPath: z.string(),
+  prompt: z.string(),
+  allowedTools: z.array(z.string()).optional(),
+})
 
 // Track running agent processes
 const agentProcesses = new Map<string, { process: ReturnType<typeof spawn>, sessionId: string | null }>()
 
 export async function POST(req: NextRequest) {
-  const { agentId, repoPath, prompt, allowedTools } = await req.json() as {
-    agentId: string
-    repoPath: string
-    prompt: string
-    allowedTools?: string[]
+  const parsed = SpawnRequestSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
+  const { agentId, repoPath, prompt, allowedTools } = parsed.data
 
   // Kill existing process for this agent if any
   const existing = agentProcesses.get(agentId)
@@ -20,14 +28,7 @@ export async function POST(req: NextRequest) {
     agentProcesses.delete(agentId)
   }
 
-  const tools = allowedTools || [
-    'Read', 'Write', 'Edit',
-    'Bash(npm run *)', 'Bash(npx *)', 'Bash(node *)',
-    'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status)',
-    'Bash(git diff *)', 'Bash(git log *)', 'Bash(git branch *)',
-    'Bash(cat *)', 'Bash(ls *)', 'Bash(mkdir *)', 'Bash(grep *)',
-    'Bash(find *)', 'Bash(echo *)',
-  ]
+  const tools = allowedTools ?? DEFAULT_ALLOWED_TOOLS
 
   try {
     // Use claude -p for headless mode with streaming JSON
@@ -76,8 +77,8 @@ export async function POST(req: NextRequest) {
       sessionId: agentProcesses.get(agentId)?.sessionId || null,
       pid: proc.pid,
     })
-  } catch (e: any) {
-    return NextResponse.json({ success: false, error: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    return NextResponse.json({ success: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 })
   }
 }
 

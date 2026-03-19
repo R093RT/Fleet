@@ -1,17 +1,28 @@
 import { NextRequest } from 'next/server'
 import { spawn } from 'child_process'
 import { existsSync } from 'fs'
+import { z } from 'zod'
+import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
 
 export const dynamic = 'force-dynamic'
 
+const StreamRequestSchema = z.object({
+  agentId: z.string(),
+  repoPath: z.string(),
+  prompt: z.string(),
+  sessionId: z.string().nullable().optional(),
+  allowedTools: z.array(z.string()).optional(),
+})
+
 export async function POST(req: NextRequest) {
-  const { agentId, repoPath, prompt, sessionId, allowedTools } = await req.json() as {
-    agentId: string
-    repoPath: string
-    prompt: string
-    sessionId?: string | null
-    allowedTools?: string[]
+  const parsed = StreamRequestSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return new Response(JSON.stringify({ error: 'Invalid request', details: parsed.error.flatten() }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
+  const { agentId, repoPath, prompt, sessionId, allowedTools } = parsed.data
 
   if (!existsSync(repoPath)) {
     return new Response(JSON.stringify({ error: `Path not found: ${repoPath}` }), {
@@ -20,16 +31,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const tools = allowedTools || [
-    'Read', 'Write', 'Edit',
-    'Bash(npm run *)', 'Bash(npx *)', 'Bash(node *)',
-    'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status)',
-    'Bash(git diff *)', 'Bash(git log *)', 'Bash(git branch *)',
-    'Bash(git checkout *)', 'Bash(git stash *)',
-    'Bash(cat *)', 'Bash(ls *)', 'Bash(mkdir *)', 'Bash(grep *)',
-    'Bash(find *)', 'Bash(echo *)', 'Bash(head *)', 'Bash(tail *)',
-    'Bash(npx prisma *)', 'Bash(npx eslint *)', 'Bash(npx jest *)',
-  ]
+  const tools = allowedTools ?? DEFAULT_ALLOWED_TOOLS
 
   const args = [
     '-p', prompt,
@@ -126,17 +128,36 @@ export async function POST(req: NextRequest) {
   })
 }
 
-function formatSSEMessage(msg: any, agentId: string) {
+interface ContentBlock {
+  type: string
+  text?: string
+  name?: string
+  input?: unknown
+}
+
+interface ClaudeStreamMessage {
+  type: string
+  message?: { content: ContentBlock[] }
+  result?: string
+  subtype?: string
+  cost_usd?: number
+  cost?: number
+  session_id?: string
+  duration_ms?: number
+  content?: unknown
+}
+
+function formatSSEMessage(msg: ClaudeStreamMessage, agentId: string) {
   // Claude Code stream-json emits various message types
   if (msg.type === 'assistant' && msg.message?.content) {
     const textBlocks = msg.message.content
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text)
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text ?? '')
       .join('')
 
     const toolUses = msg.message.content
-      .filter((b: any) => b.type === 'tool_use')
-      .map((b: any) => ({ tool: b.name, input: b.input }))
+      .filter((b) => b.type === 'tool_use')
+      .map((b) => ({ tool: b.name ?? '', input: b.input }))
 
     return {
       type: 'assistant',

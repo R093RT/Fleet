@@ -8,7 +8,7 @@ interface StreamMessage {
   agentId: string
   text?: string
   content?: string
-  toolUses?: { tool: string; input: any }[]
+  toolUses?: { tool: string; input: unknown }[]
   sessionId?: string | null
   subtype?: string
   cost?: number | null
@@ -48,6 +48,24 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
       Notification.requestPermission()
     }
 
+    // Resolve effective working path — create a worktree on first spawn
+    let effectivePath = agent.worktreePath || agent.path
+    if (!agent.worktreePath) {
+      try {
+        const wtRes = await fetch('/api/worktree', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId: agent.id, repoPath: agent.path }),
+        })
+        const wt = await wtRes.json()
+        if (wt.worktreePath) {
+          updateAgent(agent.id, { worktreePath: wt.worktreePath, worktreeBranch: wt.branchName })
+          effectivePath = wt.worktreePath
+        }
+      } catch {}
+      // If worktree creation fails (not a git repo, etc.) we fall back to agent.path
+    }
+
     const controller = new AbortController()
     abortRef.current = controller
 
@@ -57,7 +75,7 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: agent.id,
-          repoPath: agent.path,
+          repoPath: effectivePath,
           prompt,
           sessionId: agent.sessionId,
         }),
@@ -134,12 +152,12 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
           } catch {}
         }
       }
-    } catch (e: any) {
-      if (e.name !== 'AbortError') {
+    } catch (e: unknown) {
+      if (!(e instanceof Error) || e.name !== 'AbortError') {
         appendMessage(agent.id, {
           id: `msg-${Date.now()}`,
           role: 'system',
-          content: `Connection error: ${e.message}`,
+          content: `Connection error: ${e instanceof Error ? e.message : String(e)}`,
           timestamp: Date.now(),
         })
         updateAgent(agent.id, { status: 'error', isStreaming: false })

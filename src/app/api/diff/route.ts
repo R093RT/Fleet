@@ -2,12 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { execSync } from 'child_process'
 import { existsSync } from 'fs'
 import path from 'path'
+import { z } from 'zod'
+
+const DiffSchema = z.object({
+  repoPath: z.string(),
+  mode: z.enum(['staged', 'unstaged', 'last-commit', 'unpushed']).optional(),
+})
 
 export async function POST(req: NextRequest) {
-  const { repoPath, mode } = await req.json() as {
-    repoPath: string
-    mode?: 'staged' | 'unstaged' | 'last-commit' | 'unpushed'
+  const parsed = DiffSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
+  const { repoPath, mode } = parsed.data
 
   if (!existsSync(path.join(repoPath, '.git'))) {
     return NextResponse.json({ error: 'Not a git repo' }, { status: 400 })
@@ -56,7 +63,7 @@ export async function POST(req: NextRequest) {
       files,
       truncated: diff.length > 50000,
     })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 })
   }
 }

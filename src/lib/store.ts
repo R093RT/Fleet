@@ -28,6 +28,8 @@ export interface Agent {
   icon: string
   devPort: number | null
   previewPath: string
+  worktreePath: string | null
+  worktreeBranch: string | null
 
   // Runtime state
   status: AgentStatus
@@ -73,6 +75,8 @@ const makeAgent = (config: Partial<Agent>): Agent => ({
   icon: config.icon || '⚙️',
   devPort: config.devPort ?? null,
   previewPath: config.previewPath || '/',
+  worktreePath: config.worktreePath ?? null,
+  worktreeBranch: config.worktreeBranch ?? null,
   status: 'idle',
   task: config.task || '',
   score: null,

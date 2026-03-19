@@ -21,15 +21,15 @@ export function DiffViewer({ agent }: { agent: Agent }) {
       const res = await fetch('/api/diff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoPath: agent.path, mode: m }),
+        body: JSON.stringify({ repoPath: agent.worktreePath || agent.path, mode: m }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setDiff(data.diff || '')
       setSummary(data.summary || '')
       setFiles(data.files || [])
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }

@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import path from 'path'
+import { z } from 'zod'
+
+const SignalTypeSchema = z.enum(['handoff', 'blocker', 'update', 'request', 'done'])
+
+const CreateSignalSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  type: SignalTypeSchema,
+  message: z.string(),
+})
+
+const ResolveSignalSchema = z.object({ signalId: z.string() })
 
 // Signals are stored locally in the Fleet project directory by default.
 // Override with SIGNALS_DIR env var to share signals across machines or store elsewhere.
@@ -61,7 +73,11 @@ export async function GET(req: NextRequest) {
 
 // POST: create a new signal
 export async function POST(req: NextRequest) {
-  const { from, to, type, message } = await req.json() as Omit<Signal, 'id' | 'timestamp' | 'resolved'>
+  const parsed = CreateSignalSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
+  }
+  const { from, to, type, message } = parsed.data
 
   const signals = readSignals()
   const signal: Signal = {
@@ -81,14 +97,19 @@ export async function POST(req: NextRequest) {
 
 // PATCH: resolve a signal
 export async function PATCH(req: NextRequest) {
-  const { signalId } = await req.json() as { signalId: string }
+  const parsed = ResolveSignalSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
+  }
+  const { signalId } = parsed.data
 
   const signals = readSignals()
   const idx = signals.findIndex(s => s.id === signalId)
-  if (idx === -1) {
+  const found = idx !== -1 ? signals[idx] : undefined
+  if (!found) {
     return NextResponse.json({ error: 'Signal not found' }, { status: 404 })
   }
-  signals[idx].resolved = true
+  found.resolved = true
   writeSignals(signals)
 
   return NextResponse.json({ success: true })

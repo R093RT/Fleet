@@ -1,22 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { execSync } from 'child_process'
+import { z } from 'zod'
+import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
+
+const SendMessageSchema = z.object({
+  repoPath: z.string(),
+  sessionId: z.string(),
+  prompt: z.string(),
+  allowedTools: z.array(z.string()).optional(),
+})
 
 export async function POST(req: NextRequest) {
-  const { repoPath, sessionId, prompt, allowedTools } = await req.json() as {
-    repoPath: string
-    sessionId: string
-    prompt: string
-    allowedTools?: string[]
+  const parsed = SendMessageSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
+  const { repoPath, sessionId, prompt, allowedTools } = parsed.data
 
-  const tools = allowedTools || [
-    'Read', 'Write', 'Edit',
-    'Bash(npm run *)', 'Bash(npx *)', 'Bash(node *)',
-    'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status)',
-    'Bash(git diff *)', 'Bash(git log *)', 'Bash(git branch *)',
-    'Bash(cat *)', 'Bash(ls *)', 'Bash(mkdir *)', 'Bash(grep *)',
-    'Bash(find *)', 'Bash(echo *)',
-  ]
+  const tools = allowedTools ?? DEFAULT_ALLOWED_TOOLS
 
   try {
     // Resume existing session with --session-id and --resume
@@ -43,11 +44,9 @@ export async function POST(req: NextRequest) {
       cost: parsed.cost || null,
       sessionId: parsed.session_id || sessionId,
     })
-  } catch (e: any) {
-    return NextResponse.json({
-      success: false,
-      error: e.message,
-      stderr: e.stderr?.toString() || '',
-    }, { status: 500 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    const stderr = e != null && typeof e === 'object' && 'stderr' in e ? String((e as { stderr: unknown }).stderr) : ''
+    return NextResponse.json({ success: false, error: msg, stderr }, { status: 500 })
   }
 }
