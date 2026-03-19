@@ -8,7 +8,7 @@ export function AddAgentModal({ onClose }: { onClose: () => void }) {
 
   const handleSubmit = (v: AgentFormValues) => {
     const repo = v.path.replace(/\\/g, '/').split('/').pop() || v.name
-    addAgent({ name: v.name, role: v.role, repo, path: v.path, icon: v.icon, color: v.color, devPort: v.devPort ? parseInt(v.devPort) : null })
+    addAgent({ name: v.name, role: v.role, repo, path: v.path, icon: v.icon, color: v.color, devPort: v.devPort ? parseInt(v.devPort) : null, agentType: v.agentType })
     onClose()
   }
 

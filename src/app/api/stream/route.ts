@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server'
 import { spawn } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import path from 'path'
 import { z } from 'zod'
 import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
+import { liveProcesses } from '@/lib/process-registry'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,6 +15,49 @@ const StreamRequestSchema = z.object({
   sessionId: z.string().nullable().optional(),
   allowedTools: z.array(z.string()).optional(),
 })
+
+interface SessionFile {
+  agentId: string
+  sessionId: string | null
+  startedAt: number
+  lastActiveAt: number
+  totalCost: number
+  totalRuns: number
+  totalTokens: number
+}
+
+function writeSessionFile(agentId: string, update: { sessionId: string | null; cost: number; tokens: number }) {
+  try {
+    const dir = path.join(process.cwd(), '.fleet', 'sessions')
+    mkdirSync(dir, { recursive: true })
+    const filePath = path.join(dir, `${agentId}.json`)
+
+    let existing: SessionFile = {
+      agentId,
+      sessionId: update.sessionId,
+      startedAt: Date.now(),
+      lastActiveAt: Date.now(),
+      totalCost: 0,
+      totalRuns: 0,
+      totalTokens: 0,
+    }
+
+    if (existsSync(filePath)) {
+      try { existing = JSON.parse(readFileSync(filePath, 'utf-8')) as SessionFile } catch {}
+    }
+
+    const updated: SessionFile = {
+      ...existing,
+      sessionId: update.sessionId ?? existing.sessionId,
+      lastActiveAt: Date.now(),
+      totalCost: existing.totalCost + update.cost,
+      totalRuns: existing.totalRuns + 1,
+      totalTokens: existing.totalTokens + update.tokens,
+    }
+
+    writeFileSync(filePath, JSON.stringify(updated, null, 2))
+  } catch {}
+}
 
 export async function POST(req: NextRequest) {
   const parsed = StreamRequestSchema.safeParse(await req.json())
@@ -56,6 +101,9 @@ export async function POST(req: NextRequest) {
         shell: true,
       })
 
+      // Register in the process registry so /api/kill can terminate it
+      liveProcesses.set(agentId, proc)
+
       let buffer = ''
 
       proc.stdout?.on('data', (chunk: Buffer) => {
@@ -69,6 +117,17 @@ export async function POST(req: NextRequest) {
             const msg = JSON.parse(line)
             const event = formatSSEMessage(msg, agentId)
             if (event) {
+              // Async side-effect: persist session data to disk after each completed run
+              if (event.type === 'result') {
+                const tokens = (event.inputTokens ?? 0) + (event.outputTokens ?? 0)
+                void Promise.resolve().then(() =>
+                  writeSessionFile(agentId, {
+                    sessionId: event.sessionId ?? null,
+                    cost: event.cost ?? 0,
+                    tokens,
+                  })
+                )
+              }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
             }
           } catch {
@@ -86,6 +145,8 @@ export async function POST(req: NextRequest) {
       })
 
       proc.on('close', (code) => {
+        liveProcesses.delete(agentId)
+
         // Flush remaining buffer
         if (buffer.trim()) {
           try {
@@ -104,6 +165,7 @@ export async function POST(req: NextRequest) {
       })
 
       proc.on('error', (err) => {
+        liveProcesses.delete(agentId)
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({
           type: 'error',
           agentId,
@@ -115,6 +177,7 @@ export async function POST(req: NextRequest) {
       // Handle client disconnect
       req.signal.addEventListener('abort', () => {
         try { proc.kill() } catch {}
+        liveProcesses.delete(agentId)
       })
     },
   })
@@ -145,6 +208,7 @@ interface ClaudeStreamMessage {
   session_id?: string
   duration_ms?: number
   content?: unknown
+  usage?: { input_tokens?: number; output_tokens?: number }
 }
 
 function formatSSEMessage(msg: ClaudeStreamMessage, agentId: string) {
@@ -177,6 +241,8 @@ function formatSSEMessage(msg: ClaudeStreamMessage, agentId: string) {
       cost: msg.cost_usd || msg.cost || null,
       sessionId: msg.session_id || null,
       duration: msg.duration_ms || null,
+      inputTokens: msg.usage?.input_tokens ?? null,
+      outputTokens: msg.usage?.output_tokens ?? null,
     }
   }
 

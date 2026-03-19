@@ -81,8 +81,24 @@ export function SignalsPanel() {
     )
   }
 
+  const blockers = signals.filter(s => s.type === 'blocker')
+
   return (
     <div className="space-y-2 px-4 py-3">
+      {/* Blocker dependency section */}
+      {blockers.length > 0 && (
+        <div className="p-2 rounded bg-red-500/5 border border-red-500/15">
+          <div className="text-xs text-red-400/60 font-medium mb-1">BLOCKERS</div>
+          {blockers.map(s => (
+            <div key={s.id} className="flex items-baseline gap-1 text-xs">
+              <span className="opacity-50">{s.from}</span>
+              <span className="text-red-400/40">blocked by</span>
+              <span className="opacity-50">{s.to}</span>
+              <span className="opacity-25 italic truncate ml-1">{s.message.slice(0, 60)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <span className="text-xs opacity-30 font-semibold">SIGNALS ({signals.length})</span>
         <button onClick={() => setShowNew(!showNew)}

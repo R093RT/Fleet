@@ -62,8 +62,13 @@ export function RoadmapModal({ onClose }: { onClose: () => void }) {
         <textarea value={content} onChange={e => setContent(e.target.value)}
           className="flex-1 p-5 text-sm font-mono leading-relaxed bg-transparent text-white/80 outline-none resize-none"
           spellCheck={false} placeholder={loaded ? 'Set ROADMAP_PATH in .env to link a file...' : 'Loading...'} />
-        <div className="px-5 py-2 border-t border-white/5 text-xs opacity-15">
-          Configure path: set ROADMAP_PATH in .env
+        <div className="px-5 py-2 border-t border-white/5 flex items-center justify-between">
+          <span className="text-xs opacity-20">Set <code className="font-mono">ROADMAP_PATH</code> in .env to link a file on disk</span>
+          <span className="text-xs opacity-25">
+            💡 Tip: point <code className="font-mono">ROADMAP_PATH</code> to a file inside an{' '}
+            <a href="https://obsidian.md" target="_blank" rel="noreferrer" className="underline hover:opacity-60 transition-all">Obsidian</a>{' '}
+            vault — your Quartermaster writes it, you visualize the graph
+          </span>
         </div>
       </div>
     </div>

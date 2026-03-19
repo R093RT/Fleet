@@ -37,6 +37,39 @@ describe('addAgent / makeAgent defaults', () => {
     expect(agent?.sessionId).toBeNull()
   })
 
+  it('initialises session stats to zero/null', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test' })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.sessionStartedAt).toBeNull()
+    expect(agent?.sessionCost).toBe(0)
+    expect(agent?.sessionTurns).toBe(0)
+    expect(agent?.sessionTokens).toBeNull()
+    expect(agent?.pid).toBeNull()
+  })
+
+  it('initialises auto-iterate config to defaults', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test' })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.autoIterate).toBe(false)
+    expect(agent?.iterateThreshold).toBe(75)
+    expect(agent?.iterateMaxRounds).toBe(3)
+    expect(agent?.iterationRound).toBe(0)
+    expect(agent?.iterationScore).toBeNull()
+  })
+
+  it('initialises agentType to worker', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test' })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.agentType).toBe('worker')
+    expect(agent?.injectRoadmap).toBe(false)
+  })
+
+  it('respects agentType: quartermaster when provided', () => {
+    useStore.getState().addAgent({ name: 'QM', path: '/tmp/test', agentType: 'quartermaster' })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.agentType).toBe('quartermaster')
+  })
+
   it('initialises messages to empty array', () => {
     useStore.getState().addAgent({ name: 'Test', path: '/tmp/test' })
     const agent = useStore.getState().agents.at(-1)

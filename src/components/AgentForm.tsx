@@ -12,6 +12,7 @@ export interface AgentFormValues {
   icon: string
   color: string
   devPort: string
+  agentType: 'worker' | 'quartermaster'
 }
 
 interface AgentFormProps {
@@ -28,6 +29,7 @@ export function AgentForm({ initial, submitLabel, onSubmit, onCancel }: AgentFor
   const [icon, setIcon] = useState(initial?.icon || '⚙️')
   const [color, setColor] = useState(initial?.color || '#2563eb')
   const [devPort, setDevPort] = useState(initial?.devPort || '')
+  const [agentType, setAgentType] = useState<'worker' | 'quartermaster'>(initial?.agentType || 'worker')
 
   const isValid = name.trim() && path.trim()
 
@@ -51,10 +53,20 @@ export function AgentForm({ initial, submitLabel, onSubmit, onCancel }: AgentFor
           placeholder="/Users/you/my-project  or  C:\Users\you\my-project"
           className="w-full text-sm bg-white/5 border border-white/8 rounded px-3 py-1.5 text-white/90 placeholder:text-white/15 outline-none font-mono focus:border-white/20" />
       </div>
-      <div>
-        <label className="text-xs opacity-30 block mb-1">Dev port <span className="opacity-50">(optional)</span></label>
-        <input value={devPort} onChange={e => setDevPort(e.target.value.replace(/\D/g, ''))} placeholder="3000"
-          className="w-24 text-sm bg-white/5 border border-white/8 rounded px-3 py-1.5 text-white/90 placeholder:text-white/15 outline-none tabular-nums" />
+      <div className="flex gap-3 items-end">
+        <div>
+          <label className="text-xs opacity-30 block mb-1">Dev port <span className="opacity-50">(optional)</span></label>
+          <input value={devPort} onChange={e => setDevPort(e.target.value.replace(/\D/g, ''))} placeholder="3000"
+            className="w-24 text-sm bg-white/5 border border-white/8 rounded px-3 py-1.5 text-white/90 placeholder:text-white/15 outline-none tabular-nums" />
+        </div>
+        <div>
+          <label className="text-xs opacity-30 block mb-1">Type</label>
+          <select value={agentType} onChange={e => setAgentType(e.target.value as 'worker' | 'quartermaster')}
+            className="text-sm bg-white/5 border border-white/8 rounded px-3 py-1.5 text-white/80 outline-none">
+            <option value="worker">⚙️ Worker</option>
+            <option value="quartermaster">⚓ Quartermaster</option>
+          </select>
+        </div>
       </div>
       <div>
         <label className="text-xs opacity-30 block mb-1">Icon</label>
@@ -72,7 +84,7 @@ export function AgentForm({ initial, submitLabel, onSubmit, onCancel }: AgentFor
       </div>
       <div className="flex justify-end gap-2 pt-1">
         {onCancel && <button onClick={onCancel} className="text-xs px-3 py-1.5 text-white/30 hover:text-white/80">Cancel</button>}
-        <button onClick={() => isValid && onSubmit({ name, role, path, icon, color, devPort })} disabled={!isValid}
+        <button onClick={() => isValid && onSubmit({ name, role, path, icon, color, devPort, agentType })} disabled={!isValid}
           className="text-xs px-4 py-1.5 rounded font-medium disabled:opacity-20 transition-all"
           style={{ backgroundColor: 'rgba(212,168,67,0.2)', color: '#d4a843', border: '1px solid rgba(212,168,67,0.3)' }}>
           {submitLabel}

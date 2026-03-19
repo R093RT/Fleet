@@ -7,15 +7,37 @@ import { AddAgentModal } from '@/components/AddAgentModal'
 import { RoadmapModal } from '@/components/RoadmapModal'
 import { SetupWizard } from '@/components/SetupWizard'
 import { SignalsPanel } from '@/components/SignalsPanel'
+import { DiscoverModal } from '@/components/DiscoverModal'
 
 export default function Dashboard() {
   const { agents, filter, setupComplete, updateAgent, setFilter } = useStore()
   const [showRoadmap, setShowRoadmap] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
+  const [showDiscover, setShowDiscover] = useState(false)
   const [mounted, setMounted] = useState(false)
 
-  // Avoid hydration mismatch — only render after client store is loaded
-  useEffect(() => { setMounted(true) }, [])
+  // Avoid hydration mismatch — only render after client store is loaded.
+  // Also restore session stats from disk for agents that have none in localStorage
+  // (e.g. after a localStorage clear) — a noop if stats are already present.
+  useEffect(() => {
+    setMounted(true)
+    fetch('/api/sessions')
+      .then(r => r.json())
+      .then((data: { sessions?: Array<{ agentId: string; totalCost: number; totalRuns: number; totalTokens: number }> }) => {
+        const currentAgents = useStore.getState().agents
+        for (const s of data.sessions ?? []) {
+          const agent = currentAgents.find(a => a.id === s.agentId)
+          if (agent && agent.sessionCost === 0 && s.totalCost > 0) {
+            useStore.getState().updateAgent(s.agentId, {
+              sessionCost: s.totalCost,
+              sessionTurns: s.totalRuns,
+              sessionTokens: s.totalTokens > 0 ? s.totalTokens : null,
+            })
+          }
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Poll git status every 15 seconds
   useEffect(() => {
@@ -47,6 +69,7 @@ export default function Dashboard() {
       if (e.key === 'Escape') {
         setShowRoadmap(false)
         setShowAdd(false)
+        setShowDiscover(false)
       }
       if (e.key === 'r' && e.ctrlKey && e.shiftKey) {
         e.preventDefault()
@@ -95,6 +118,10 @@ export default function Dashboard() {
                   {attnCount} need{attnCount === 1 ? 's' : ''} attention
                 </button>
               )}
+              <button onClick={() => setShowDiscover(true)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-white/50 hover:text-white/90 border border-white/8 transition-all">
+                Discover
+              </button>
               <button onClick={() => setShowRoadmap(true)}
                 className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-white/50 hover:text-white/90 border border-white/8 transition-all">
                 🗺️ Roadmap <span className="opacity-30 ml-1">Ctrl+Shift+R</span>
@@ -159,6 +186,7 @@ export default function Dashboard() {
       {/* Modals */}
       {showRoadmap && <RoadmapModal onClose={() => setShowRoadmap(false)} />}
       {showAdd && <AddAgentModal onClose={() => setShowAdd(false)} />}
+      {showDiscover && <DiscoverModal onClose={() => setShowDiscover(false)} />}
     </div>
   )
 }

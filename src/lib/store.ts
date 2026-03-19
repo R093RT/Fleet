@@ -41,7 +41,25 @@ export interface Agent {
   lastUpdate: number | null
   sessionId: string | null
 
-  // Live data
+  // Session stats (persisted — survive browser refresh)
+  sessionStartedAt: number | null
+  sessionCost: number
+  sessionTurns: number
+  sessionTokens: number | null
+
+  // Score-driven iteration config (persisted)
+  autoIterate: boolean
+  iterateThreshold: number
+  iterateMaxRounds: number
+
+  // Agent type + roadmap config (persisted)
+  agentType: 'worker' | 'quartermaster'
+  injectRoadmap: boolean
+
+  // Live data (not persisted)
+  pid: number | null
+  iterationRound: number
+  iterationScore: number | null
   git: GitInfo | null
   messages: AgentMessage[]
   isStreaming: boolean
@@ -85,6 +103,18 @@ const makeAgent = (config: Partial<Agent>): Agent => ({
   planApproved: null,
   lastUpdate: null,
   sessionId: null,
+  sessionStartedAt: null,
+  sessionCost: 0,
+  sessionTurns: 0,
+  sessionTokens: null,
+  autoIterate: false,
+  iterateThreshold: 75,
+  iterateMaxRounds: 3,
+  agentType: config.agentType ?? 'worker',
+  injectRoadmap: config.injectRoadmap ?? false,
+  pid: null,
+  iterationRound: 0,
+  iterationScore: null,
   git: null,
   messages: [],
   isStreaming: false,
@@ -133,6 +163,9 @@ export const useStore = create<Store>()(
           // Don't persist runtime-only state
           messages: a.messages.slice(-50),
           isStreaming: false,
+          pid: null,
+          iterationRound: 0,
+          iterationScore: null,
           git: null,
         })),
         roadmap: state.roadmap,
