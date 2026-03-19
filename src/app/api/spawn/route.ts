@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { execSync, spawn } from 'child_process'
-import path from 'path'
+import { spawn } from 'child_process'
 import { z } from 'zod'
 import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
+import { SafeId, SafeTool, AbsolutePath } from '@/lib/validate'
 
 const SpawnRequestSchema = z.object({
-  agentId: z.string(),
-  repoPath: z.string(),
-  prompt: z.string(),
-  allowedTools: z.array(z.string()).optional(),
+  agentId: SafeId,
+  repoPath: AbsolutePath,
+  prompt: z.string().min(1),
+  allowedTools: z.array(SafeTool).optional(),
 })
 
 // Track running agent processes
@@ -84,8 +84,9 @@ export async function POST(req: NextRequest) {
 
 // GET: check status of a running agent
 export async function GET(req: NextRequest) {
-  const agentId = req.nextUrl.searchParams.get('agentId')
-  if (!agentId) return NextResponse.json({ error: 'agentId required' }, { status: 400 })
+  const raw = req.nextUrl.searchParams.get('agentId')
+  const { data: agentId, success } = SafeId.safeParse(raw)
+  if (!success) return NextResponse.json({ error: 'agentId required' }, { status: 400 })
 
   const entry = agentProcesses.get(agentId)
   return NextResponse.json({

@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { execSync } from 'child_process'
+import { spawnSync } from 'child_process'
 import { existsSync, mkdirSync, rmSync } from 'fs'
 import path from 'path'
 import { z } from 'zod'
+import { SafeId, AbsolutePath } from '@/lib/validate'
 
-const WorktreeCreateSchema = z.object({ agentId: z.string(), repoPath: z.string() })
-const WorktreeDeleteSchema = z.object({ worktreePath: z.string(), repoPath: z.string() })
+const WorktreeCreateSchema = z.object({ agentId: SafeId, repoPath: AbsolutePath })
+const WorktreeDeleteSchema = z.object({ worktreePath: AbsolutePath, repoPath: AbsolutePath })
 
 function isGitRepo(repoPath: string): boolean {
   // Works for both normal repos (.git dir) and worktrees (.git file)
   return existsSync(repoPath) && existsSync(path.join(repoPath, '.git'))
+}
+
+/** Run a git command via args array (never shell-interpolated strings). */
+function runGit(args: string[], cwd: string): { ok: boolean; stderr: string } {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf-8', shell: true, timeout: 15000 })
+  return { ok: r.status === 0 && !r.error, stderr: r.stderr ?? '' }
 }
 
 // POST: create an isolated worktree for an agent
@@ -35,21 +42,19 @@ export async function POST(req: NextRequest) {
   // Ensure parent directory exists
   mkdirSync(path.dirname(worktreePath), { recursive: true })
 
-  const opts = { cwd: repoPath, encoding: 'utf-8' as const }
-
-  try {
-    // Try creating a new branch + worktree from HEAD
-    execSync(`git worktree add -b "${branchName}" "${worktreePath}" HEAD`, opts)
+  // Try creating a new branch + worktree from HEAD
+  const r1 = runGit(['worktree', 'add', '-b', branchName, worktreePath, 'HEAD'], repoPath)
+  if (r1.ok) {
     return NextResponse.json({ worktreePath, branchName })
-  } catch {
-    // Branch may already exist (e.g. from previous session) — add worktree to existing branch
-    try {
-      execSync(`git worktree add "${worktreePath}" "${branchName}"`, opts)
-      return NextResponse.json({ worktreePath, branchName })
-    } catch (e: unknown) {
-      return NextResponse.json({ error: e instanceof Error ? e.message : String(e), fallback: true })
-    }
   }
+
+  // Branch may already exist (e.g. from previous session) — add worktree to existing branch
+  const r2 = runGit(['worktree', 'add', worktreePath, branchName], repoPath)
+  if (r2.ok) {
+    return NextResponse.json({ worktreePath, branchName })
+  }
+
+  return NextResponse.json({ error: r2.stderr || 'git worktree add failed', fallback: true })
 }
 
 // DELETE: remove worktree when agent is removed
@@ -61,11 +66,9 @@ export async function DELETE(req: NextRequest) {
   const { worktreePath, repoPath } = parsed.data
 
   // Ask git to deregister the worktree (best-effort)
-  try {
-    if (isGitRepo(repoPath)) {
-      execSync(`git worktree remove "${worktreePath}" --force`, { cwd: repoPath, encoding: 'utf-8' })
-    }
-  } catch {}
+  if (isGitRepo(repoPath)) {
+    runGit(['worktree', 'remove', worktreePath, '--force'], repoPath)
+  }
 
   // Remove directory regardless
   try {

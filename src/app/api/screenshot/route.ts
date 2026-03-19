@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { execSync } from 'child_process'
+import { spawnSync } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import path from 'path'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 import { z } from 'zod'
+import { SafeId } from '@/lib/validate'
 
 const ScreenshotSchema = z.object({
-  agentId: z.string(),
+  agentId: SafeId,
   url: z.string().url(),
   label: z.enum(['before', 'after']).optional(),
 })
@@ -22,11 +23,13 @@ function ensureDir() {
 
 function capturePlaywright(url: string, filepath: string): boolean {
   try {
-    execSync(
-      `npx playwright screenshot --browser chromium "${url}" "${filepath}"`,
-      { timeout: 30000, encoding: 'utf-8' }
+    // Use args array — never interpolate user values into a shell command string
+    const result = spawnSync(
+      'npx',
+      ['playwright', 'screenshot', '--browser', 'chromium', url, filepath],
+      { timeout: 30000, encoding: 'utf-8', shell: true }
     )
-    return true
+    return result.status === 0 && !result.error
   } catch {
     return false
   }
@@ -147,7 +150,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-const DeleteSchema = z.object({ agentId: z.string() })
+const DeleteSchema = z.object({ agentId: SafeId })
 
 export async function DELETE(req: NextRequest) {
   const parsed = DeleteSchema.safeParse(await req.json())

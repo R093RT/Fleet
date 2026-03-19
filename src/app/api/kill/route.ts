@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { liveProcesses } from '@/lib/process-registry'
+import { SafeId } from '@/lib/validate'
 
-const KillSchema = z.object({ agentId: z.string() })
+const KillSchema = z.object({ agentId: SafeId })
 
 export async function DELETE(req: NextRequest) {
   const parsed = KillSchema.safeParse(await req.json())

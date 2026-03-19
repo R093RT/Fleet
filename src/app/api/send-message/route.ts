@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { execSync } from 'child_process'
+import { spawnSync } from 'child_process'
 import { z } from 'zod'
 import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
+import { SafeId, SafeSessionId, SafeTool, AbsolutePath } from '@/lib/validate'
 
 const SendMessageSchema = z.object({
-  repoPath: z.string(),
-  sessionId: z.string(),
-  prompt: z.string(),
-  allowedTools: z.array(z.string()).optional(),
+  repoPath: AbsolutePath,
+  sessionId: SafeSessionId,
+  prompt: z.string().min(1),
+  allowedTools: z.array(SafeTool).optional(),
+  agentId: SafeId.optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -19,34 +21,47 @@ export async function POST(req: NextRequest) {
 
   const tools = allowedTools ?? DEFAULT_ALLOWED_TOOLS
 
-  try {
-    // Resume existing session with --session-id and --resume
-    const toolArgs = tools.map(t => `--allowedTools "${t}"`).join(' ')
-    const cmd = `claude -p "${prompt.replace(/"/g, '\\"')}" --session-id ${sessionId} --resume --output-format json ${toolArgs}`
+  // Build args array — never construct a shell string with user input
+  const args = [
+    '-p', prompt,
+    '--session-id', sessionId,
+    '--resume',
+    '--output-format', 'json',
+    ...tools.flatMap(t => ['--allowedTools', t]),
+  ]
 
-    const result = execSync(cmd, {
-      cwd: repoPath,
-      encoding: 'utf-8',
-      timeout: 300000, // 5 min timeout
-      env: { ...process.env },
-    })
+  const result = spawnSync('claude', args, {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    timeout: 300000, // 5 min timeout
+    env: { ...process.env },
+    shell: true,
+  })
 
-    let parsed
-    try {
-      parsed = JSON.parse(result)
-    } catch {
-      parsed = { result: result.trim() }
-    }
-
-    return NextResponse.json({
-      success: true,
-      response: parsed.result || result.trim(),
-      cost: parsed.cost || null,
-      sessionId: parsed.session_id || sessionId,
-    })
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    const stderr = e != null && typeof e === 'object' && 'stderr' in e ? String((e as { stderr: unknown }).stderr) : ''
-    return NextResponse.json({ success: false, error: msg, stderr }, { status: 500 })
+  if (result.error) {
+    return NextResponse.json({ success: false, error: result.error.message, stderr: '' }, { status: 500 })
   }
+
+  if (result.status !== 0) {
+    return NextResponse.json({
+      success: false,
+      error: result.stderr?.trim() || 'Process exited with non-zero status',
+      stderr: result.stderr ?? '',
+    }, { status: 500 })
+  }
+
+  const output = result.stdout ?? ''
+  let data: Record<string, unknown>
+  try {
+    data = JSON.parse(output) as Record<string, unknown>
+  } catch {
+    data = { result: output.trim() }
+  }
+
+  return NextResponse.json({
+    success: true,
+    response: typeof data['result'] === 'string' ? data['result'] : output.trim(),
+    cost: data['cost'] ?? null,
+    sessionId: typeof data['session_id'] === 'string' ? data['session_id'] : sessionId,
+  })
 }

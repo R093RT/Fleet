@@ -3,8 +3,9 @@ import { execSync } from 'child_process'
 import { existsSync } from 'fs'
 import path from 'path'
 import { z } from 'zod'
+import { AbsolutePath } from '@/lib/validate'
 
-const GitStatusSchema = z.object({ paths: z.array(z.string()) })
+const GitStatusSchema = z.object({ paths: z.array(AbsolutePath) })
 
 function getGitInfo(repoPath: string) {
   if (!existsSync(path.join(repoPath, '.git'))) {

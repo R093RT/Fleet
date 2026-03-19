@@ -1,12 +1,13 @@
 import { NextRequest } from 'next/server'
-import { watch } from 'fs'
-import { existsSync } from 'fs'
+import { watch, existsSync } from 'fs'
+import path from 'path'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const repoPath = req.nextUrl.searchParams.get('path')
-  if (!repoPath || !existsSync(repoPath)) {
+
+  if (!repoPath || !path.isAbsolute(repoPath) || !existsSync(repoPath)) {
     return new Response('Invalid path', { status: 400 })
   }
 

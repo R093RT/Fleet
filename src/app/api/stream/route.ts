@@ -5,15 +5,16 @@ import path from 'path'
 import { z } from 'zod'
 import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
 import { liveProcesses } from '@/lib/process-registry'
+import { SafeId, SafeSessionId, SafeTool, AbsolutePath } from '@/lib/validate'
 
 export const dynamic = 'force-dynamic'
 
 const StreamRequestSchema = z.object({
-  agentId: z.string(),
-  repoPath: z.string(),
-  prompt: z.string(),
-  sessionId: z.string().nullable().optional(),
-  allowedTools: z.array(z.string()).optional(),
+  agentId: SafeId,
+  repoPath: AbsolutePath,
+  prompt: z.string().min(1),
+  sessionId: SafeSessionId.nullable().optional(),
+  allowedTools: z.array(SafeTool).optional(),
 })
 
 interface SessionFile {

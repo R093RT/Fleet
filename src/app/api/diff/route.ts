@@ -3,9 +3,10 @@ import { execSync } from 'child_process'
 import { existsSync } from 'fs'
 import path from 'path'
 import { z } from 'zod'
+import { AbsolutePath } from '@/lib/validate'
 
 const DiffSchema = z.object({
-  repoPath: z.string(),
+  repoPath: AbsolutePath,
   mode: z.enum(['staged', 'unstaged', 'last-commit', 'unpushed']).optional(),
 })
 
