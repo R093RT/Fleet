@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useStore, type Agent } from '@/lib/store'
-import { formatTime } from '@/lib/utils'
+import { parseScore } from '@/lib/utils'
+import { SessionStatsBar } from './SessionStatsBar'
 
 interface StreamMessage {
   type: 'assistant' | 'result' | 'system' | 'tool_result' | 'text' | 'stderr' | 'done' | 'error'
@@ -19,14 +20,6 @@ interface StreamMessage {
   exitCode?: number
 }
 
-const parseScore = (text: string): number | null => {
-  const m =
-    /(?:score|rating)[:\s]+(\d{1,3})\s*\/\s*100/i.exec(text) ||
-    /\b(\d{1,3})\s*\/\s*100\b/.exec(text)
-  if (!m) return null
-  const n = parseInt(m[1] ?? '0')
-  return n >= 0 && n <= 100 ? n : null
-}
 
 export function StreamingTerminal({ agent }: { agent: Agent }) {
   const { updateAgent, appendMessage } = useStore()
@@ -311,39 +304,7 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
 
   return (
     <div className="border-t border-white/5">
-      {/* Session stats bar */}
-      {(agent.sessionStartedAt != null || agent.sessionCost > 0) && (
-        <div className="flex items-center gap-3 px-3 py-1.5 border-b border-white/5 text-xs font-mono">
-          {agent.sessionStartedAt != null && (
-            <span className="text-white/30">started {formatTime(agent.sessionStartedAt)}</span>
-          )}
-          {agent.sessionCost > 0 && (
-            <span className={agent.budgetCap != null && agent.sessionCost >= agent.budgetCap ? 'text-red-400' : agent.budgetCap != null && agent.sessionCost >= agent.budgetCap * 0.8 ? 'text-amber-400' : 'text-amber/60'}>
-              ${agent.sessionCost.toFixed(4)}
-            </span>
-          )}
-          {agent.sessionTurns > 0 && (
-            <span className="text-white/30">{agent.sessionTurns} run{agent.sessionTurns !== 1 ? 's' : ''}</span>
-          )}
-          {agent.sessionTokens != null && agent.sessionTokens > 0 && (
-            <span className="text-white/25">{(agent.sessionTokens / 1000).toFixed(1)}k tok</span>
-          )}
-          {agent.iterationRound > 0 && (
-            <span className="text-purple-400/60">round {agent.iterationRound}</span>
-          )}
-          {agent.iterationScore != null && agent.iterationRound > 0 && (
-            <span className="text-white/40">auto {agent.iterationScore}/100</span>
-          )}
-          {!streaming && (
-            <button
-              onClick={() => updateAgent(agent.id, { sessionCost: 0, sessionTurns: 0, sessionTokens: null, sessionStartedAt: null, sessionId: null })}
-              className="ml-auto text-white/15 hover:text-white/50 transition-all"
-              title="Reset session stats and cost counter">
-              ↺ reset
-            </button>
-          )}
-        </div>
-      )}
+      <SessionStatsBar agent={agent} streaming={streaming} />
 
       {/* Message history + live stream */}
       <div ref={scrollRef} className="h-64 overflow-y-auto p-3 space-y-1.5 bg-black/30 font-mono text-xs">

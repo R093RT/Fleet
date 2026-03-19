@@ -1,0 +1,28 @@
+{
+  "name": "create-fleet",
+  "version": "1.0.0",
+  "description": "One-command installer for Fleet — the Claude Code agent dashboard",
+  "bin": {
+    "create-fleet": "./index.js"
+  },
+  "main": "./index.js",
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai-agents",
+    "fleet",
+    "anthropic"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/R093RT/Fleet.git"
+  }
+}

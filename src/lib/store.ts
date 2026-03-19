@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { z } from 'zod'
+import type { AgentConfigSchema } from './fleet-yaml-schema'
 
 export type AgentStatus = 'idle' | 'running' | 'needs-input' | 'reviewing' | 'done' | 'error'
 
@@ -69,6 +71,8 @@ export interface Agent {
   isStreaming: boolean
 }
 
+export type AgentConfig = z.infer<typeof AgentConfigSchema>
+
 interface Store {
   agents: Agent[]
   roadmap: string
@@ -87,6 +91,7 @@ interface Store {
   setRoadmap: (content: string) => void
   setSetupComplete: (v: boolean) => void
   addDailySpend: (date: string, amount: number) => void
+  importAgentsFromConfig: (configs: AgentConfig[]) => void
 }
 
 const makeAgent = (config: Partial<Agent>): Agent => ({
@@ -173,6 +178,25 @@ export const useStore = create<Store>()(
             return { dailySpend: pruned }
           }
           return { dailySpend: updated }
+        }),
+
+      importAgentsFromConfig: (configs) =>
+        set((s) => {
+          const now = Date.now()
+          const newAgents = configs.map((c, i) =>
+            makeAgent({
+              id: `agent-${now}-${i}`,
+              name: c.name,
+              path: c.path,
+              role: c.role,
+              devPort: c.devPort ?? null,
+              agentType: c.agentType ?? 'worker',
+              icon: c.icon,
+              color: c.color,
+              repo: c.path.replace(/\\/g, '/').split('/').pop() || c.name,
+            })
+          )
+          return { agents: [...s.agents, ...newAgents], setupComplete: true }
         }),
     }),
     {

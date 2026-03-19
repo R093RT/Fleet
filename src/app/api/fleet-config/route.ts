@@ -8,7 +8,7 @@ export async function GET() {
   const configPath = getConfigPath()
 
   if (!existsSync(configPath)) {
-    return NextResponse.json({ reactions: [] })
+    return NextResponse.json({ agents: [], reactions: [] })
   }
 
   try {
@@ -18,14 +18,19 @@ export async function GET() {
 
     if (!result.success) {
       return NextResponse.json({
+        agents: [],
         reactions: [],
         error: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
       })
     }
 
-    return NextResponse.json({ reactions: result.data.reactions ?? [] })
+    return NextResponse.json({
+      agents: result.data.agents ?? [],
+      reactions: result.data.reactions ?? [],
+    })
   } catch (e: unknown) {
     return NextResponse.json({
+      agents: [],
       reactions: [],
       error: e instanceof Error ? e.message : String(e),
     })

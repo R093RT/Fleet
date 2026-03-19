@@ -154,6 +154,51 @@ describe('budgetCap + pendingTrigger defaults', () => {
   })
 })
 
+describe('importAgentsFromConfig', () => {
+  it('creates agents from config and sets setupComplete', () => {
+    useStore.getState().importAgentsFromConfig([
+      { name: 'Frontend', path: '/tmp/fe' },
+      { name: 'Backend', path: '/tmp/be' },
+    ])
+    const { agents, setupComplete } = useStore.getState()
+    expect(agents).toHaveLength(2)
+    expect(agents[0]?.name).toBe('Frontend')
+    expect(agents[1]?.name).toBe('Backend')
+    expect(setupComplete).toBe(true)
+  })
+
+  it('assigns unique IDs when importing multiple agents', () => {
+    useStore.getState().importAgentsFromConfig([
+      { name: 'A', path: '/tmp/a' },
+      { name: 'B', path: '/tmp/b' },
+      { name: 'C', path: '/tmp/c' },
+    ])
+    const ids = useStore.getState().agents.map(a => a.id)
+    expect(new Set(ids).size).toBe(3)
+  })
+
+  it('derives repo from the last path segment', () => {
+    useStore.getState().importAgentsFromConfig([{ name: 'Agent', path: '/home/user/my-project' }])
+    expect(useStore.getState().agents[0]?.repo).toBe('my-project')
+  })
+
+  it('respects agentType from config', () => {
+    useStore.getState().importAgentsFromConfig([{ name: 'QM', path: '/tmp/q', agentType: 'quartermaster' }])
+    expect(useStore.getState().agents[0]?.agentType).toBe('quartermaster')
+  })
+
+  it('defaults agentType to worker when not specified', () => {
+    useStore.getState().importAgentsFromConfig([{ name: 'W', path: '/tmp/w' }])
+    expect(useStore.getState().agents[0]?.agentType).toBe('worker')
+  })
+
+  it('appends to existing agents rather than replacing them', () => {
+    useStore.getState().addAgent({ name: 'Existing', path: '/tmp/e' })
+    useStore.getState().importAgentsFromConfig([{ name: 'New', path: '/tmp/n' }])
+    expect(useStore.getState().agents).toHaveLength(2)
+  })
+})
+
 describe('addDailySpend', () => {
   it('creates a new date entry', () => {
     useStore.getState().addDailySpend('2026-03-19', 0.0123)
