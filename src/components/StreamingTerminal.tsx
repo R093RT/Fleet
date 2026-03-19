@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useStore, type Agent } from '@/lib/store'
 import { formatTime } from '@/lib/utils'
 
@@ -165,16 +165,33 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
               })
 
               const addedTokens = (msg.inputTokens ?? 0) + (msg.outputTokens ?? 0)
+              const newCost = (agent.sessionCost || 0) + (msg.cost || 0)
               updateAgent(agent.id, {
                 status: 'done',
                 lastUpdate: Date.now(),
                 isStreaming: false,
-                sessionCost: (agent.sessionCost || 0) + (msg.cost || 0),
+                sessionCost: newCost,
                 sessionTurns: (agent.sessionTurns || 0) + 1,
                 sessionTokens: addedTokens > 0
                   ? (agent.sessionTokens || 0) + addedTokens
                   : agent.sessionTokens,
               })
+
+              // Track daily spend
+              if (msg.cost) {
+                const today = new Date().toISOString().slice(0, 10)
+                useStore.getState().addDailySpend(today, msg.cost)
+              }
+
+              // Budget cap soft warning
+              if (agent.budgetCap != null && newCost >= agent.budgetCap) {
+                appendMessage(agent.id, {
+                  id: `msg-${Date.now()}-bc`,
+                  role: 'system',
+                  content: `⚠️ Budget cap $${agent.budgetCap.toFixed(2)} reached. Session cost: $${newCost.toFixed(4)}`,
+                  timestamp: Date.now(),
+                })
+              }
 
               // Auto-iterate logic
               if (agent.autoIterate) {
@@ -281,6 +298,17 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
     inputRef.current?.focus()
   }
 
+  // Pick up prompts injected by the reactions engine
+  useEffect(() => {
+    if (agent.pendingTrigger && !streaming) {
+      const prompt = agent.pendingTrigger
+      updateAgent(agent.id, { pendingTrigger: null })
+      void sendPrompt(prompt)
+    }
+  // sendPrompt is stable (defined in component body; deps don't change identity)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.pendingTrigger, streaming])
+
   return (
     <div className="border-t border-white/5">
       {/* Session stats bar */}
@@ -290,7 +318,9 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
             <span className="text-white/30">started {formatTime(agent.sessionStartedAt)}</span>
           )}
           {agent.sessionCost > 0 && (
-            <span className="text-amber/60">${agent.sessionCost.toFixed(4)}</span>
+            <span className={agent.budgetCap != null && agent.sessionCost >= agent.budgetCap ? 'text-red-400' : agent.budgetCap != null && agent.sessionCost >= agent.budgetCap * 0.8 ? 'text-amber-400' : 'text-amber/60'}>
+              ${agent.sessionCost.toFixed(4)}
+            </span>
           )}
           {agent.sessionTurns > 0 && (
             <span className="text-white/30">{agent.sessionTurns} run{agent.sessionTurns !== 1 ? 's' : ''}</span>
@@ -303,6 +333,14 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
           )}
           {agent.iterationScore != null && agent.iterationRound > 0 && (
             <span className="text-white/40">auto {agent.iterationScore}/100</span>
+          )}
+          {!streaming && (
+            <button
+              onClick={() => updateAgent(agent.id, { sessionCost: 0, sessionTurns: 0, sessionTokens: null, sessionStartedAt: null, sessionId: null })}
+              className="ml-auto text-white/15 hover:text-white/50 transition-all"
+              title="Reset session stats and cost counter">
+              ↺ reset
+            </button>
           )}
         </div>
       )}

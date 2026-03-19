@@ -9,6 +9,7 @@ beforeEach(() => {
     expandedId: null,
     filter: 'all',
     setupComplete: false,
+    dailySpend: {},
   })
 })
 
@@ -130,5 +131,45 @@ describe('setSetupComplete', () => {
   it('updates setupComplete', () => {
     useStore.getState().setSetupComplete(true)
     expect(useStore.getState().setupComplete).toBe(true)
+  })
+})
+
+describe('budgetCap + pendingTrigger defaults', () => {
+  it('initialises budgetCap to null', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test' })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.budgetCap).toBeNull()
+  })
+
+  it('initialises pendingTrigger to null', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test' })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.pendingTrigger).toBeNull()
+  })
+
+  it('respects budgetCap when provided', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test', budgetCap: 1.5 })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.budgetCap).toBe(1.5)
+  })
+})
+
+describe('addDailySpend', () => {
+  it('creates a new date entry', () => {
+    useStore.getState().addDailySpend('2026-03-19', 0.0123)
+    expect(useStore.getState().dailySpend['2026-03-19']).toBeCloseTo(0.0123)
+  })
+
+  it('accumulates multiple calls on the same date', () => {
+    useStore.getState().addDailySpend('2026-03-19', 0.01)
+    useStore.getState().addDailySpend('2026-03-19', 0.02)
+    expect(useStore.getState().dailySpend['2026-03-19']).toBeCloseTo(0.03)
+  })
+
+  it('keeps separate entries for different dates', () => {
+    useStore.getState().addDailySpend('2026-03-18', 0.5)
+    useStore.getState().addDailySpend('2026-03-19', 0.1)
+    expect(useStore.getState().dailySpend['2026-03-18']).toBeCloseTo(0.5)
+    expect(useStore.getState().dailySpend['2026-03-19']).toBeCloseTo(0.1)
   })
 })

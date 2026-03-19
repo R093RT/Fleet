@@ -20,8 +20,10 @@
     "next": "^15.1.0",
     "pixelmatch": "^7.1.0",
     "pngjs": "^7.0.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "yaml": "^2.8.2",
     "zod": "^4.3.6",
     "zustand": "^5.0.0"
   },

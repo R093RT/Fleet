@@ -70,6 +70,9 @@ export function AgentCard({ agent }: { agent: Agent }) {
             {agent.sessionId && <span className="text-xs px-1 py-0.5 rounded bg-green-500/10 text-green-500/60">live</span>}
             {agent.worktreeBranch && <span className="text-xs px-1 py-0.5 rounded bg-purple-500/10 text-purple-400/60 font-mono">{agent.worktreeBranch}</span>}
             {agent.agentType === 'quartermaster' && <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400/80">⚓ QM</span>}
+            {agent.budgetCap != null && agent.sessionCost >= agent.budgetCap && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium">⚠ over budget</span>
+            )}
           </div>
           <div className="flex items-center gap-3 mt-0.5">
             <span className="text-xs opacity-35 truncate">{agent.task || 'No active task'}</span>
@@ -83,7 +86,7 @@ export function AgentCard({ agent }: { agent: Agent }) {
       {isExpanded && (
         <>
           {/* Tab bar */}
-          <div className="flex items-center gap-1 px-4 py-1 border-t border-white/5">
+          <div className="flex items-center gap-1 px-4 py-1 border-t border-white/5 overflow-x-auto">
             {(['control', 'terminal', 'diff', 'preview'] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className="text-xs px-2.5 py-1 rounded transition-all capitalize"
@@ -140,6 +143,21 @@ export function AgentCard({ agent }: { agent: Agent }) {
                   onChange={e => updateAgent(agent.id, { score: e.target.value ? parseInt(e.target.value) : null, lastUpdate: Date.now() })}
                   className="w-16 text-sm text-center bg-white/5 border border-white/8 rounded px-2 py-1 text-white/90 placeholder:text-white/15 outline-none tabular-nums" />
                 <span className="text-xs opacity-20">/ 100</span>
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="text-xs opacity-30">Budget cap</label>
+                <span className="text-xs opacity-30">$</span>
+                <input type="number" min="0" step="0.1" value={agent.budgetCap ?? ''}
+                  placeholder="none"
+                  onChange={e => updateAgent(agent.id, { budgetCap: e.target.value ? parseFloat(e.target.value) : null })}
+                  className="w-20 text-xs text-center bg-white/5 border border-white/8 rounded px-2 py-0.5 text-white/80 placeholder:text-white/20 outline-none tabular-nums" />
+                <span className="text-xs opacity-20">USD / session</span>
+                {agent.sessionCost > 0 && (
+                  <span className={`text-xs tabular-nums font-mono ${agent.budgetCap != null && agent.sessionCost >= agent.budgetCap ? 'text-red-400' : agent.budgetCap != null && agent.sessionCost >= agent.budgetCap * 0.8 ? 'text-amber-400' : 'text-white/25'}`}>
+                    ${agent.sessionCost.toFixed(4)} used
+                  </span>
+                )}
               </div>
 
               {/* Auto-iterate config */}

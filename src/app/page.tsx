@@ -8,12 +8,15 @@ import { RoadmapModal } from '@/components/RoadmapModal'
 import { SetupWizard } from '@/components/SetupWizard'
 import { SignalsPanel } from '@/components/SignalsPanel'
 import { DiscoverModal } from '@/components/DiscoverModal'
+import { QrModal } from '@/components/QrModal'
+import { ReactionsPanel } from '@/components/ReactionsPanel'
 
 export default function Dashboard() {
-  const { agents, filter, setupComplete, updateAgent, setFilter } = useStore()
+  const { agents, filter, setupComplete, updateAgent, setFilter, dailySpend } = useStore()
   const [showRoadmap, setShowRoadmap] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [showDiscover, setShowDiscover] = useState(false)
+  const [showQr, setShowQr] = useState(false)
   const [mounted, setMounted] = useState(false)
 
   // Avoid hydration mismatch — only render after client store is loaded.
@@ -70,6 +73,7 @@ export default function Dashboard() {
         setShowRoadmap(false)
         setShowAdd(false)
         setShowDiscover(false)
+        setShowQr(false)
       }
       if (e.key === 'r' && e.ctrlKey && e.shiftKey) {
         e.preventDefault()
@@ -87,6 +91,10 @@ export default function Dashboard() {
 
   const attnCount = agents.filter(a => a.status === 'needs-input' || (a.plan && a.planApproved === null)).length
   const runCount = agents.filter(a => a.status === 'running').length
+
+  const today = new Date().toISOString().slice(0, 10)
+  const todaySpend = dailySpend[today] ?? 0
+  const totalSpend = Object.values(dailySpend).reduce((acc, v) => acc + v, 0)
 
   const filtered = filter === 'all' ? agents
     : filter === 'attention' ? agents.filter(a => a.status === 'needs-input' || (a.plan && a.planApproved === null))
@@ -118,6 +126,11 @@ export default function Dashboard() {
                   {attnCount} need{attnCount === 1 ? 's' : ''} attention
                 </button>
               )}
+              <button onClick={() => setShowQr(true)}
+                className="text-xs px-2 py-1.5 rounded-lg bg-white/5 text-white/50 hover:text-white/90 border border-white/8 transition-all"
+                title="Open Fleet on mobile">
+                📱
+              </button>
               <button onClick={() => setShowDiscover(true)}
                 className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-white/50 hover:text-white/90 border border-white/8 transition-all">
                 Discover
@@ -133,7 +146,7 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-1 mt-3">
+          <div className="flex items-center gap-1 mt-3 overflow-x-auto pb-0.5">
             {[
               { v: 'all', l: `All (${agents.length})` },
               { v: 'running', l: 'Running' },
@@ -142,7 +155,7 @@ export default function Dashboard() {
               { v: 'idle', l: 'Idle' },
               { v: 'done', l: 'Done' },
             ].map(f => (
-              <button key={f.v} onClick={() => setFilter(f.v)} className="text-xs px-2 py-0.5 rounded transition-all"
+              <button key={f.v} onClick={() => setFilter(f.v)} className="text-xs px-2 py-0.5 rounded transition-all flex-shrink-0"
                 style={{ backgroundColor: filter === f.v ? 'rgba(255,255,255,0.08)' : 'transparent', color: filter === f.v ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)' }}>{f.l}</button>
             ))}
           </div>
@@ -154,6 +167,11 @@ export default function Dashboard() {
         <div className="rounded-lg border border-white/6 bg-white/[0.01]">
           <SignalsPanel />
         </div>
+      </div>
+
+      {/* Reactions bar */}
+      <div className="max-w-5xl mx-auto px-5 pt-2">
+        <ReactionsPanel />
       </div>
 
       {/* Agent list */}
@@ -170,15 +188,23 @@ export default function Dashboard() {
 
       {/* Footer */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-white/6 bg-surface/90 backdrop-blur-sm">
-        <div className="max-w-5xl mx-auto px-5 py-2 flex items-center justify-between text-xs opacity-30">
-          <div className="flex items-center gap-4">
+        <div className="max-w-5xl mx-auto px-5 py-2 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-4 opacity-30">
             <span>🟢 {agents.filter(a => a.status === 'running').length} running</span>
             <span>🟡 {agents.filter(a => a.status === 'needs-input').length} waiting</span>
             <span>⏸️ {agents.filter(a => a.status === 'idle').length} idle</span>
           </div>
-          <div className="flex items-center gap-4">
-            <span>Avg score: {(() => { const s = agents.filter(a => a.score !== null); return s.length ? Math.round(s.reduce((t, a) => t + (a.score || 0), 0) / s.length) : '—' })()}</span>
-            <span>localhost:4000</span>
+          <div className="flex items-center gap-3">
+            <span className="hidden sm:inline opacity-30">Avg score: {(() => { const s = agents.filter(a => a.score !== null); return s.length ? Math.round(s.reduce((t, a) => t + (a.score || 0), 0) / s.length) : '—' })()}</span>
+            {todaySpend > 0 && (
+              <span className={`tabular-nums font-mono ${todaySpend > 2 ? 'text-red-400' : todaySpend > 0.5 ? 'text-amber-400' : 'opacity-30'}`}>
+                ${todaySpend.toFixed(4)} today
+              </span>
+            )}
+            {totalSpend > todaySpend && totalSpend > 0 && (
+              <span className="hidden sm:inline tabular-nums font-mono opacity-30">${totalSpend.toFixed(2)} total</span>
+            )}
+            <span className="hidden sm:inline opacity-30">localhost:4000</span>
           </div>
         </div>
       </div>
@@ -187,6 +213,7 @@ export default function Dashboard() {
       {showRoadmap && <RoadmapModal onClose={() => setShowRoadmap(false)} />}
       {showAdd && <AddAgentModal onClose={() => setShowAdd(false)} />}
       {showDiscover && <DiscoverModal onClose={() => setShowDiscover(false)} />}
+      {showQr && <QrModal onClose={() => setShowQr(false)} />}
     </div>
   )
 }

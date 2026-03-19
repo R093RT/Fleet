@@ -1,0 +1,40 @@
+# Fleet Reactions Config
+# Uncomment and edit entries to activate reactions.
+# Reactions run in the browser tab — keep Fleet open for them to fire.
+
+reactions:
+  # When test results change, ask the agent to fix failures
+  # - name: "Test failure → fix"
+  #   trigger:
+  #     type: file_change
+  #     agent: "My Agent"          # match by agent name
+  #     path: "test-results"       # substring/suffix match on filename
+  #   action:
+  #     type: send_prompt
+  #     agent: "My Agent"
+  #     message: "Test results changed. Run tests, identify failures, and fix them."
+  #   cooldown: 300                # seconds before reaction can fire again (default: 60)
+
+  # When dist output changes, mark agent as done
+  # - name: "Build output → done"
+  #   trigger:
+  #     type: file_change
+  #     agent: "My Agent"
+  #     path: "dist/index"
+  #   action:
+  #     type: set_status
+  #     agent: "My Agent"
+  #     status: done
+  #   cooldown: 30
+
+  # When dev server port goes down, ask agent to restart it
+  # - name: "Dev server down → restart"
+  #   trigger:
+  #     type: port_unavailable
+  #     agent: "My Agent"
+  #     port: 3000
+  #   action:
+  #     type: send_prompt
+  #     agent: "My Agent"
+  #     message: "The dev server on port 3000 appears to be down. Please restart it."
+  #   cooldown: 120

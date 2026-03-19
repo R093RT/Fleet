@@ -56,10 +56,14 @@ export interface Agent {
   agentType: 'worker' | 'quartermaster'
   injectRoadmap: boolean
 
+  // Budget (persisted)
+  budgetCap: number | null
+
   // Live data (not persisted)
   pid: number | null
   iterationRound: number
   iterationScore: number | null
+  pendingTrigger: string | null
   git: GitInfo | null
   messages: AgentMessage[]
   isStreaming: boolean
@@ -71,6 +75,7 @@ interface Store {
   expandedId: string | null
   filter: string
   setupComplete: boolean
+  dailySpend: Record<string, number>
 
   // Actions
   addAgent: (config: Partial<Agent>) => void
@@ -81,6 +86,7 @@ interface Store {
   setFilter: (filter: string) => void
   setRoadmap: (content: string) => void
   setSetupComplete: (v: boolean) => void
+  addDailySpend: (date: string, amount: number) => void
 }
 
 const makeAgent = (config: Partial<Agent>): Agent => ({
@@ -112,9 +118,11 @@ const makeAgent = (config: Partial<Agent>): Agent => ({
   iterateMaxRounds: 3,
   agentType: config.agentType ?? 'worker',
   injectRoadmap: config.injectRoadmap ?? false,
+  budgetCap: config.budgetCap ?? null,
   pid: null,
   iterationRound: 0,
   iterationScore: null,
+  pendingTrigger: null,
   git: null,
   messages: [],
   isStreaming: false,
@@ -128,6 +136,7 @@ export const useStore = create<Store>()(
       expandedId: null,
       filter: 'all',
       setupComplete: false,
+      dailySpend: {},
 
       addAgent: (config) =>
         set((s) => ({ agents: [...s.agents, makeAgent(config)] })),
@@ -154,6 +163,17 @@ export const useStore = create<Store>()(
       setFilter: (filter) => set({ filter }),
       setRoadmap: (roadmap) => set({ roadmap }),
       setSetupComplete: (v) => set({ setupComplete: v }),
+      addDailySpend: (date, amount) =>
+        set((s) => {
+          const updated = { ...s.dailySpend, [date]: (s.dailySpend[date] ?? 0) + amount }
+          const keys = Object.keys(updated).sort()
+          if (keys.length > 30) {
+            const pruned: Record<string, number> = {}
+            for (const k of keys.slice(-30)) pruned[k] = updated[k] ?? 0
+            return { dailySpend: pruned }
+          }
+          return { dailySpend: updated }
+        }),
     }),
     {
       name: 'fleet-store',
@@ -166,10 +186,12 @@ export const useStore = create<Store>()(
           pid: null,
           iterationRound: 0,
           iterationScore: null,
+          pendingTrigger: null,
           git: null,
         })),
         roadmap: state.roadmap,
         setupComplete: state.setupComplete,
+        dailySpend: state.dailySpend,
       }),
     }
   )
