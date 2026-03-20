@@ -2,9 +2,12 @@
 
 import { useStore } from '@/lib/store'
 import { AgentForm, type AgentFormValues } from './AgentForm'
+import { usePirateClass, usePirateText } from '@/hooks/usePirateMode'
 
 export function AddAgentModal({ onClose }: { onClose: () => void }) {
   const { addAgent } = useStore()
+  const pirateFont = usePirateClass()
+  const t = usePirateText()
 
   const handleSubmit = (v: AgentFormValues) => {
     const repo = v.path.replace(/\\/g, '/').split('/').pop() || v.name
@@ -13,14 +16,14 @@ export function AddAgentModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-surface-raised border border-white/10 rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/8">
-          <span className="text-sm font-semibold">New Agent</span>
-          <button onClick={onClose} className="text-xs opacity-30 hover:opacity-100">ESC</button>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08]">
+          <span className={`text-sm ${pirateFont} text-amber`}>{t('Recruit a Pirate', 'Add Agent')}</span>
+          <button onClick={onClose} className="text-xs opacity-30 hover:opacity-100 transition-opacity">ESC</button>
         </div>
         <div className="p-5">
-          <AgentForm submitLabel="Add Agent" onSubmit={handleSubmit} onCancel={onClose} />
+          <AgentForm submitLabel={t('Recruit', 'Add')} onSubmit={handleSubmit} onCancel={onClose} />
         </div>
       </div>
     </div>

@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useStore, type Agent } from '@/lib/store'
 import { parseScore } from '@/lib/utils'
 import { SessionStatsBar } from './SessionStatsBar'
+import { PT } from './PirateTerm'
+import { usePirateText } from '@/hooks/usePirateMode'
 
 interface StreamMessage {
   type: 'assistant' | 'result' | 'system' | 'tool_result' | 'text' | 'stderr' | 'done' | 'error'
@@ -23,6 +25,7 @@ interface StreamMessage {
 
 export function StreamingTerminal({ agent }: { agent: Agent }) {
   const { updateAgent, appendMessage } = useStore()
+  const t = usePirateText()
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [liveOutput, setLiveOutput] = useState<StreamMessage[]>([])
@@ -186,6 +189,15 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
                 })
               }
 
+              // Auto-complete voyage tasks for this agent when done
+              const currentVoyage = useStore.getState().voyage
+              if (currentVoyage) {
+                const agentTasks = currentVoyage.tasks.filter(t => t.agentId === agent.id && !t.completed)
+                for (const task of agentTasks) {
+                  useStore.getState().completeVoyageTask(task.id)
+                }
+              }
+
               // Auto-iterate logic
               if (agent.autoIterate) {
                 if (iterRef.current === null) {
@@ -302,6 +314,32 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent.pendingTrigger, streaming])
 
+  // Auto-launch: pick up agents queued via voyagePendingLaunch (Set Sail)
+  useEffect(() => {
+    const state = useStore.getState()
+    if (!state.voyagePendingLaunch.includes(agent.id)) return
+    if (streaming || agent.sessionId) return
+
+    // Remove this agent from the pending list
+    state.setVoyagePendingLaunch(state.voyagePendingLaunch.filter(id => id !== agent.id))
+
+    // Build the auto-launch prompt with treasure map + mission
+    const voyage = state.voyage
+    const missionTasks = voyage?.tasks.filter(t => t.agentId === agent.id).map(t => t.name) ?? []
+    const prompt = [
+      voyage?.treasureMap ? `[TREASURE MAP]\n${voyage.treasureMap}` : '',
+      `\n[YOUR MISSION]\nYou are ${agent.name}, the ${agent.role} of this crew.`,
+      missionTasks.length > 0 ? `Your assigned tasks:\n${missionTasks.map(t => `- ${t}`).join('\n')}` : '',
+      agent.task ? `\nDescription: ${agent.task}` : '',
+      '\nBegin working on your tasks. Start with the highest priority items.',
+    ].filter(Boolean).join('\n')
+
+    // Stagger launch slightly to avoid race conditions
+    const delay = Math.random() * 2000
+    setTimeout(() => void sendPrompt(prompt), delay)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <div className="border-t border-white/5">
       <SessionStatsBar agent={agent} streaming={streaming} />
@@ -309,7 +347,7 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
       {/* Message history + live stream */}
       <div ref={scrollRef} className="h-64 overflow-y-auto p-3 space-y-1.5 bg-black/30 font-mono text-xs">
         {agent.messages.length === 0 && liveOutput.length === 0 && (
-          <div className="opacity-15 text-center py-12">Send a prompt to start this agent in {agent.repo}...</div>
+          <div className="opacity-15 text-center py-12">{t(`Give orders to start this pirate in ${agent.repo}...`, `Enter a prompt to start this agent in ${agent.repo}...`)}</div>
         )}
 
         {/* Historical messages */}
@@ -359,7 +397,7 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
         {streaming && (
           <div className="text-green-400/60 animate-pulse flex items-center gap-2">
             <span className="inline-block w-1.5 h-1.5 bg-green-400 rounded-full animate-ping" />
-            {agent.iterationRound > 0 ? `Iterating (round ${agent.iterationRound})...` : 'Agent is working...'}
+            {agent.iterationRound > 0 ? t(`Keep Sailing (round ${agent.iterationRound})...`, `Auto-iterating (round ${agent.iterationRound})...`) : t('Pirate is sailing...', 'Agent is running...')}
           </div>
         )}
       </div>
@@ -372,9 +410,9 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && void sendPrompt()}
-          placeholder={agent.sessionId ? 'Follow-up (session active)...' : 'Initial prompt...'}
+          placeholder={agent.sessionId ? t('Follow-up orders (session active)...', 'Follow-up prompt (session active)...') : t('Give yer orders, Captain...', 'Enter your prompt...')}
           disabled={streaming}
-          className="flex-1 text-sm bg-white/5 border border-white/8 rounded px-3 py-1.5 text-white/90 placeholder:text-white/15 outline-none focus:border-white/20 disabled:opacity-30"
+          className="flex-1 input-field disabled:opacity-30"
         />
         {!streaming && agent.sessionId && (
           <button onClick={handleResume}
@@ -402,19 +440,19 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
             }}
             className="text-xs px-2 py-1.5 rounded bg-violet-500/15 text-violet-400/80 border border-violet-500/20 hover:bg-violet-500/25 transition-all"
             title="Save last response to the roadmap file">
-            📝→ Roadmap
+            {t('📝→ Treasure Map', '📝→ Roadmap')}
           </button>
         )}
         {streaming ? (
           <button onClick={stopAgent}
-            className="text-xs px-3 py-1.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-all">
-            Stop
+            className="text-xs px-3 py-1.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-all"
+            title="Stop Agent">
+            <PT k="All Stop!" className="border-0" />
           </button>
         ) : (
           <button onClick={() => void sendPrompt()} disabled={!input.trim()}
-            className="text-xs px-3 py-1.5 rounded font-medium disabled:opacity-20 transition-all"
-            style={{ backgroundColor: 'rgba(212,168,67,0.2)', color: '#d4a843', border: '1px solid rgba(212,168,67,0.3)' }}>
-            Send
+            className="btn-primary" title="Send Prompt">
+            <PT k="Fire!" className="border-0" />
           </button>
         )}
       </div>

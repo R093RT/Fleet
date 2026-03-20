@@ -42,7 +42,7 @@ export function SessionStatsBar({ agent, streaming }: SessionStatsBarProps) {
             sessionStartedAt: null, sessionId: null,
           })}
           className="ml-auto text-white/15 hover:text-white/50 transition-all"
-          title="Reset session stats and cost counter">
+          title="Reset session stats">
           ↺ reset
         </button>
       )}

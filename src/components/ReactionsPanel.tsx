@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useReactions } from '@/hooks/useReactions'
+import { PT } from './PirateTerm'
 
 function timeAgo(ts: number): string {
   const secs = Math.floor((Date.now() - ts) / 1000)
@@ -35,13 +36,18 @@ export function ReactionsPanel() {
     setTimeout(() => setFiring(null), 1500)
   }
 
+  // Hide entirely on fresh install (no fleet.yaml, no reactions)
+  if (reactions.length === 0 && error && !expanded) {
+    return null
+  }
+
   return (
-    <div className="rounded-lg border border-white/6 bg-white/[0.01]">
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.01]">
       <div
         className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
         onClick={() => setExpanded(e => !e)}>
         <span className="text-xs font-medium text-white/40">
-          ⚡ Reactions ({reactions.length})
+          ⚡ <PT k="Standing Orders" /> ({reactions.length})
         </span>
         {error && (
           <span className="text-xs text-red-400/70 truncate" title={error}>

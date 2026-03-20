@@ -2,8 +2,8 @@ import './globals.css'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Fleet',
-  description: 'Orchestration dashboard for Claude Code agents',
+  title: 'Fleet — Captain\'s Quarters',
+  description: 'Pirate command center for Claude Code agents',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

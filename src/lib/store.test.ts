@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useStore } from './store'
+import type { Voyage } from './voyage'
 
 // Reset store before each test
 beforeEach(() => {
@@ -10,6 +11,8 @@ beforeEach(() => {
     filter: 'all',
     setupComplete: false,
     dailySpend: {},
+    voyage: null,
+    voyagePendingLaunch: [],
   })
 })
 
@@ -216,5 +219,138 @@ describe('addDailySpend', () => {
     useStore.getState().addDailySpend('2026-03-19', 0.1)
     expect(useStore.getState().dailySpend['2026-03-18']).toBeCloseTo(0.5)
     expect(useStore.getState().dailySpend['2026-03-19']).toBeCloseTo(0.1)
+  })
+})
+
+describe('setVoyage', () => {
+  const makeVoyage = (overrides: Partial<Voyage> = {}): Voyage => ({
+    id: 'voyage-1',
+    name: 'Test Voyage',
+    treasureMap: '# My Roadmap',
+    tasks: [
+      { id: 'task-1', name: 'Build UI', agentId: 'agent-a', completed: false },
+      { id: 'task-2', name: 'Build API', agentId: 'agent-b', completed: false },
+    ],
+    repos: ['/tmp/repo'],
+    startedAt: Date.now(),
+    ...overrides,
+  })
+
+  it('sets the voyage', () => {
+    const voyage = makeVoyage()
+    useStore.getState().setVoyage(voyage)
+    expect(useStore.getState().voyage).toEqual(voyage)
+  })
+
+  it('clears the voyage when set to null', () => {
+    useStore.getState().setVoyage(makeVoyage())
+    useStore.getState().setVoyage(null)
+    expect(useStore.getState().voyage).toBeNull()
+  })
+
+  it('replaces an existing voyage', () => {
+    useStore.getState().setVoyage(makeVoyage({ name: 'First' }))
+    useStore.getState().setVoyage(makeVoyage({ name: 'Second' }))
+    expect(useStore.getState().voyage?.name).toBe('Second')
+  })
+})
+
+describe('completeVoyageTask', () => {
+  it('marks a task as completed', () => {
+    useStore.getState().setVoyage({
+      id: 'v1',
+      name: 'V',
+      treasureMap: '',
+      tasks: [
+        { id: 't1', name: 'Task 1', agentId: 'a1', completed: false },
+        { id: 't2', name: 'Task 2', agentId: 'a2', completed: false },
+      ],
+      repos: [],
+      startedAt: Date.now(),
+    })
+
+    useStore.getState().completeVoyageTask('t1')
+    const tasks = useStore.getState().voyage!.tasks
+    expect(tasks.find(t => t.id === 't1')?.completed).toBe(true)
+    expect(tasks.find(t => t.id === 't1')?.completedAt).toBeDefined()
+  })
+
+  it('does not affect other tasks', () => {
+    useStore.getState().setVoyage({
+      id: 'v1',
+      name: 'V',
+      treasureMap: '',
+      tasks: [
+        { id: 't1', name: 'Task 1', agentId: 'a1', completed: false },
+        { id: 't2', name: 'Task 2', agentId: 'a2', completed: false },
+      ],
+      repos: [],
+      startedAt: Date.now(),
+    })
+
+    useStore.getState().completeVoyageTask('t1')
+    expect(useStore.getState().voyage!.tasks.find(t => t.id === 't2')?.completed).toBe(false)
+  })
+
+  it('is a no-op when voyage is null', () => {
+    // Should not throw
+    useStore.getState().completeVoyageTask('t1')
+    expect(useStore.getState().voyage).toBeNull()
+  })
+
+  it('is a no-op for non-existent task IDs', () => {
+    useStore.getState().setVoyage({
+      id: 'v1',
+      name: 'V',
+      treasureMap: '',
+      tasks: [{ id: 't1', name: 'Task 1', agentId: 'a1', completed: false }],
+      repos: [],
+      startedAt: Date.now(),
+    })
+
+    useStore.getState().completeVoyageTask('nonexistent')
+    expect(useStore.getState().voyage!.tasks[0]?.completed).toBe(false)
+  })
+})
+
+describe('setVoyagePendingLaunch', () => {
+  it('sets the pending launch list', () => {
+    useStore.getState().setVoyagePendingLaunch(['agent-1', 'agent-2'])
+    expect(useStore.getState().voyagePendingLaunch).toEqual(['agent-1', 'agent-2'])
+  })
+
+  it('clears the list when set to empty array', () => {
+    useStore.getState().setVoyagePendingLaunch(['agent-1'])
+    useStore.getState().setVoyagePendingLaunch([])
+    expect(useStore.getState().voyagePendingLaunch).toEqual([])
+  })
+
+  it('replaces the previous list entirely', () => {
+    useStore.getState().setVoyagePendingLaunch(['agent-1', 'agent-2'])
+    useStore.getState().setVoyagePendingLaunch(['agent-3'])
+    expect(useStore.getState().voyagePendingLaunch).toEqual(['agent-3'])
+  })
+})
+
+describe('setPirateMode', () => {
+  it('defaults pirateMode to true', () => {
+    expect(useStore.getState().pirateMode).toBe(true)
+  })
+
+  it('defaults pirateModeChosen to false', () => {
+    expect(useStore.getState().pirateModeChosen).toBe(false)
+  })
+
+  it('sets pirateMode and marks pirateModeChosen', () => {
+    useStore.getState().setPirateMode(false)
+    expect(useStore.getState().pirateMode).toBe(false)
+    expect(useStore.getState().pirateModeChosen).toBe(true)
+  })
+
+  it('can toggle back to true', () => {
+    useStore.getState().setPirateMode(false)
+    useStore.getState().setPirateMode(true)
+    expect(useStore.getState().pirateMode).toBe(true)
+    expect(useStore.getState().pirateModeChosen).toBe(true)
   })
 })

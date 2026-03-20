@@ -3,16 +3,20 @@
 @tailwind utilities;
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Pirata+One&display=swap');
 
 :root {
-  --surface: #08090d;
-  --surface-raised: #0f1117;
-  --border: rgba(255, 255, 255, 0.06);
+  --surface: #0a0908;
+  --surface-raised: #12100e;
+  --border: rgba(212, 168, 67, 0.08);
   --text-primary: rgba(255, 255, 255, 0.9);
   --text-secondary: rgba(255, 255, 255, 0.4);
   --text-muted: rgba(255, 255, 255, 0.2);
   --amber: #d4a843;
-  --navy: #1a2332;
+  --navy: #0e1f2a;
+  --parchment: #2a2218;
+  --rope: rgba(160, 120, 60, 0.3);
+  --blood-red: #8b1a1a;
 }
 
 body {
@@ -21,11 +25,14 @@ body {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Scrollbar */
+/* Scrollbar — gold-tinted */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+::-webkit-scrollbar-thumb { background: rgba(212,168,67,0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(212,168,67,0.25); }
+
+/* Selection — gold highlight */
+::selection { background: rgba(212,168,67,0.25); color: #fff; }
 
 /* Animations */
 @keyframes pulse-amber {
@@ -33,3 +40,62 @@ body {
   50% { opacity: 0.5; }
 }
 .animate-pulse-amber { animation: pulse-amber 2s ease-in-out infinite; }
+
+/* Smooth pirate mode transitions — applied on the root to animate text/icon changes */
+.pirate-transition,
+.pirate-transition * {
+  transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, opacity 0.3s ease;
+}
+
+@layer components {
+  .input-field {
+    @apply text-sm bg-white/[0.04] border rounded-md px-3 py-1.5
+           text-white/90 placeholder:text-white/25 outline-none
+           focus:bg-white/[0.06]
+           transition-colors duration-150;
+    border-color: rgba(212,168,67,0.08);
+  }
+  .input-field:focus {
+    border-color: rgba(212,168,67,0.20);
+  }
+  .input-field-sm {
+    @apply text-xs bg-white/[0.04] border rounded-md px-2 py-1
+           text-white/80 placeholder:text-white/25 outline-none
+           focus:bg-white/[0.06]
+           transition-colors duration-150;
+    border-color: rgba(212,168,67,0.08);
+  }
+  .input-field-sm:focus {
+    border-color: rgba(212,168,67,0.20);
+  }
+  .field-label {
+    @apply text-xs text-white/30 block mb-1;
+  }
+  .btn-primary {
+    @apply text-xs px-4 py-1.5 rounded-md font-medium transition-all duration-150
+           disabled:opacity-20;
+    background-color: rgba(212,168,67,0.15);
+    color: #d4a843;
+    border: 1px solid rgba(212,168,67,0.25);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: rgba(212,168,67,0.25);
+    border-color: rgba(212,168,67,0.40);
+  }
+  .btn-ghost {
+    @apply text-xs px-3 py-1.5 rounded-md bg-white/[0.04] text-white/50
+           hover:text-white/90 hover:bg-white/[0.08]
+           transition-all duration-150;
+    border: 1px solid rgba(212,168,67,0.08);
+  }
+  .modal-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm;
+  }
+  .modal-content {
+    @apply bg-surface-raised rounded-xl shadow-2xl animate-scale-in;
+    border: 1px solid rgba(212,168,67,0.10);
+  }
+  .pirate-border {
+    border-color: rgba(212,168,67,0.08);
+  }
+}

@@ -85,9 +85,9 @@ export function PreviewPanel({ agent }: { agent: Agent }) {
       <div className="flex items-center gap-2 px-4 py-2">
         <span className="text-xs opacity-30">localhost:</span>
         <input type="text" value={port} onChange={e => setPort(e.target.value.replace(/\D/g, ''))} placeholder="port"
-          className="w-14 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-white/80 placeholder:text-white/20 outline-none tabular-nums" />
+          className="w-14 input-field-sm tabular-nums" />
         <input type="text" value={path} onChange={e => setPath(e.target.value)} placeholder="/"
-          className="flex-1 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-white/80 placeholder:text-white/20 outline-none font-mono" />
+          className="flex-1 input-field-sm font-mono" />
         <button onClick={load} className="text-xs px-2 py-0.5 rounded bg-white/8 text-white/60 hover:text-white border border-white/10 transition-all">Load</button>
         <button onClick={() => setKey(k => k + 1)} className="text-xs text-white/30 hover:text-white/80" title="Refresh">↻</button>
         <button onClick={() => ref.current?.requestFullscreen?.()} className="text-xs text-white/30 hover:text-white/80" title="Fullscreen">⛶</button>

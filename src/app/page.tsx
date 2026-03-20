@@ -14,9 +14,16 @@ import { DashboardHeader } from '@/components/DashboardHeader'
 import { useSessionRecovery } from '@/hooks/useSessionRecovery'
 import { useGitPolling } from '@/hooks/useGitPolling'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { CompassRose } from '@/components/PirateDecorations'
+import { PT } from '@/components/PirateTerm'
+import { VoyageProgress } from '@/components/VoyageProgress'
+import { usePirateMode, usePirateClass, usePirateText } from '@/hooks/usePirateMode'
 
 export default function Dashboard() {
   const { agents, filter, setupComplete, setFilter, dailySpend } = useStore()
+  const isPirate = usePirateMode()
+  const pirateFont = usePirateClass()
+  const t = usePirateText()
   const [showRoadmap, setShowRoadmap] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [showDiscover, setShowDiscover] = useState(false)
@@ -51,7 +58,14 @@ export default function Dashboard() {
     : agents.filter(a => a.status === filter)
 
   return (
-    <div className="min-h-screen pb-12">
+    <div className="min-h-screen pb-12 relative pirate-transition">
+      {/* Compass rose watermark — pirate mode only */}
+      {isPirate && (
+        <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-0">
+          <CompassRose size={500} className="text-amber opacity-[0.02]" />
+        </div>
+      )}
+
       <DashboardHeader
         agents={agents}
         filter={filter}
@@ -64,40 +78,43 @@ export default function Dashboard() {
         onShowQr={() => setShowQr(true)}
       />
 
+      {/* Voyage progress */}
+      <VoyageProgress />
+
       {/* Signals bar */}
-      <div className="max-w-5xl mx-auto px-5 pt-3">
-        <div className="rounded-lg border border-white/6 bg-white/[0.01]">
+      <div className="max-w-6xl mx-auto px-5 pt-3">
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.01]">
           <SignalsPanel />
         </div>
       </div>
 
       {/* Reactions bar */}
-      <div className="max-w-5xl mx-auto px-5 pt-2">
+      <div className="max-w-6xl mx-auto px-5 pt-2">
         <ReactionsPanel />
       </div>
 
       {/* Agent list */}
-      <div className="max-w-5xl mx-auto px-5 py-4 space-y-2">
+      <div className="max-w-6xl mx-auto px-5 py-4 space-y-3">
         {filtered.map(a => <AgentCard key={a.id} agent={a} />)}
         {filtered.length === 0 && (
           <div className="text-center py-20 opacity-15 text-sm">
             {filter === 'all'
-              ? <span>No agents yet. <button onClick={() => setShowAdd(true)} className="underline">Add one.</button></span>
-              : 'No agents match this filter.'}
+              ? <span className={`${pirateFont} text-lg`}>{t('No crew yet.', 'No agents yet.')} <button onClick={() => setShowAdd(true)} className="underline">{t('Recruit one.', 'Add one.')}</button></span>
+              : <span className={`${pirateFont} text-lg`}>{t('No pirates match this filter.', 'No agents match this filter.')}</span>}
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div className="fixed bottom-0 left-0 right-0 border-t border-white/6 bg-surface/90 backdrop-blur-sm">
-        <div className="max-w-5xl mx-auto px-5 py-2 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-4 opacity-30">
-            <span>🟢 {agents.filter(a => a.status === 'running').length} running</span>
-            <span>🟡 {agents.filter(a => a.status === 'needs-input').length} waiting</span>
-            <span>⏸️ {agents.filter(a => a.status === 'idle').length} idle</span>
+      <div className="fixed bottom-0 left-0 right-0 border-t border-white/[0.06] bg-surface/90 backdrop-blur-sm">
+        <div className="max-w-6xl mx-auto px-5 py-2 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-4 text-white/30">
+            <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />{agents.filter(a => a.status === 'running').length} <PT k="At Sea" className="border-0" /></span>
+            <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />{agents.filter(a => a.status === 'needs-input').length} <PT k="Awaiting Orders" className="border-0" /></span>
+            <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-white/20 inline-block" />{agents.filter(a => a.status === 'idle').length} <PT k="Anchored" className="border-0" /></span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden sm:inline opacity-30">Avg score: {(() => { const s = agents.filter(a => a.score !== null); return s.length ? Math.round(s.reduce((t, a) => t + (a.score || 0), 0) / s.length) : '—' })()}</span>
+            <span className="hidden sm:inline opacity-30" title="Average Quality Score"><PT k="Morale" className="border-0" />: {(() => { const s = agents.filter(a => a.score !== null); return s.length ? Math.round(s.reduce((t, a) => t + (a.score || 0), 0) / s.length) : '—' })()}</span>
             {todaySpend > 0 && (
               <span className={`tabular-nums font-mono ${todaySpend > 2 ? 'text-red-400' : todaySpend > 0.5 ? 'text-amber-400' : 'opacity-30'}`}>
                 ${todaySpend.toFixed(4)} today
@@ -106,7 +123,7 @@ export default function Dashboard() {
             {totalSpend > todaySpend && totalSpend > 0 && (
               <span className="hidden sm:inline tabular-nums font-mono opacity-30">${totalSpend.toFixed(2)} total</span>
             )}
-            <span className="hidden sm:inline opacity-30">localhost:4000</span>
+            <span className={`hidden sm:inline text-white/15 ${pirateFont}`}>Fleet · localhost:4000</span>
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { z } from 'zod'
 import type { AgentConfigSchema } from './fleet-yaml-schema'
+import type { Voyage, VoyageTask } from './voyage'
 
 export type AgentStatus = 'idle' | 'running' | 'needs-input' | 'reviewing' | 'done' | 'error'
 
@@ -80,6 +81,10 @@ interface Store {
   filter: string
   setupComplete: boolean
   dailySpend: Record<string, number>
+  voyage: Voyage | null
+  voyagePendingLaunch: string[]
+  pirateMode: boolean
+  pirateModeChosen: boolean
 
   // Actions
   addAgent: (config: Partial<Agent>) => void
@@ -92,6 +97,10 @@ interface Store {
   setSetupComplete: (v: boolean) => void
   addDailySpend: (date: string, amount: number) => void
   importAgentsFromConfig: (configs: AgentConfig[]) => void
+  setVoyage: (v: Voyage | null) => void
+  completeVoyageTask: (taskId: string) => void
+  setVoyagePendingLaunch: (ids: string[]) => void
+  setPirateMode: (v: boolean) => void
 }
 
 const makeAgent = (config: Partial<Agent>): Agent => ({
@@ -142,6 +151,10 @@ export const useStore = create<Store>()(
       filter: 'all',
       setupComplete: false,
       dailySpend: {},
+      voyage: null,
+      voyagePendingLaunch: [],
+      pirateMode: true,
+      pirateModeChosen: false,
 
       addAgent: (config) =>
         set((s) => ({ agents: [...s.agents, makeAgent(config)] })),
@@ -198,6 +211,19 @@ export const useStore = create<Store>()(
           )
           return { agents: [...s.agents, ...newAgents], setupComplete: true }
         }),
+
+      setVoyage: (v) => set({ voyage: v }),
+      completeVoyageTask: (taskId) => set((s) => {
+        if (!s.voyage) return {}
+        return {
+          voyage: {
+            ...s.voyage,
+            tasks: s.voyage.tasks.map(t => t.id === taskId ? { ...t, completed: true, completedAt: Date.now() } : t),
+          },
+        }
+      }),
+      setVoyagePendingLaunch: (ids) => set({ voyagePendingLaunch: ids }),
+      setPirateMode: (v) => set({ pirateMode: v, pirateModeChosen: true }),
     }),
     {
       name: 'fleet-store',
@@ -216,6 +242,10 @@ export const useStore = create<Store>()(
         roadmap: state.roadmap,
         setupComplete: state.setupComplete,
         dailySpend: state.dailySpend,
+        voyage: state.voyage,
+        voyagePendingLaunch: [],
+        pirateMode: state.pirateMode,
+        pirateModeChosen: state.pirateModeChosen,
       }),
     }
   )

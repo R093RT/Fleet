@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useStore } from '@/lib/store'
+import { Select } from './Select'
+import { PT } from './PirateTerm'
+import { usePirateClass } from '@/hooks/usePirateMode'
 
 interface Signal {
   id: string
@@ -23,6 +26,7 @@ const TYPE_COLORS: Record<string, string> = {
 
 export function SignalsPanel() {
   const { agents } = useStore()
+  const pirateFont = usePirateClass()
   const [signals, setSignals] = useState<Signal[]>([])
   const [showNew, setShowNew] = useState(false)
   const [from, setFrom] = useState('')
@@ -71,11 +75,11 @@ export function SignalsPanel() {
 
   if (signals.length === 0 && !showNew) {
     return (
-      <div className="px-4 py-3 flex items-center justify-between">
-        <span className="text-xs opacity-20">No active signals</span>
+      <div className="flex items-center justify-between px-4 py-2">
+        <span className="text-xs text-white/15">0 <PT k="Ship-to-Ship" className="border-0" /></span>
         <button onClick={() => setShowNew(true)}
-          className="text-xs px-2 py-1 rounded bg-white/5 text-white/40 hover:text-white/80 transition-all">
-          + Signal
+          className="text-xs px-2 py-0.5 rounded text-white/20 hover:text-white/50 transition-colors">
+          + New
         </button>
       </div>
     )
@@ -100,7 +104,7 @@ export function SignalsPanel() {
         </div>
       )}
       <div className="flex items-center justify-between">
-        <span className="text-xs opacity-30 font-semibold">SIGNALS ({signals.length})</span>
+        <span className={`text-xs opacity-30 font-semibold ${pirateFont}`}><PT k="Ship-to-Ship" className="border-0" /> ({signals.length})</span>
         <button onClick={() => setShowNew(!showNew)}
           className="text-xs px-2 py-0.5 rounded bg-white/5 text-white/40 hover:text-white/80 transition-all">
           {showNew ? 'Cancel' : '+ Signal'}
@@ -109,35 +113,28 @@ export function SignalsPanel() {
 
       {/* Create new signal */}
       {showNew && (
-        <div className="p-3 rounded bg-white/3 border border-white/8 space-y-2">
+        <div className="p-3 rounded bg-white/[0.03] border border-white/[0.08] space-y-2">
           <div className="flex gap-2">
-            <select value={from} onChange={e => setFrom(e.target.value)}
-              className="flex-1 text-xs bg-white/5 border border-white/8 rounded px-2 py-1 text-white/80 outline-none">
-              <option value="">From...</option>
-              {agents.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-            </select>
-            <select value={to} onChange={e => setTo(e.target.value)}
-              className="flex-1 text-xs bg-white/5 border border-white/8 rounded px-2 py-1 text-white/80 outline-none">
-              <option value="">To...</option>
-              <option value="*">All agents</option>
-              {agents.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-            </select>
-            <select value={type} onChange={e => setType(e.target.value as Signal['type'])}
-              className="text-xs bg-white/5 border border-white/8 rounded px-2 py-1 text-white/80 outline-none">
-              <option value="handoff">Handoff</option>
-              <option value="blocker">Blocker</option>
-              <option value="request">Request</option>
-              <option value="update">Update</option>
-              <option value="done">Done</option>
-            </select>
+            <Select value={from} onChange={setFrom} size="sm" placeholder="From..." className="flex-1"
+              options={agents.map(a => ({ value: a.name, label: a.name }))} />
+            <Select value={to} onChange={setTo} size="sm" placeholder="To..." className="flex-1"
+              options={[{ value: '*', label: 'All agents' }, ...agents.map(a => ({ value: a.name, label: a.name }))]} />
+            <Select value={type} onChange={v => setType(v as Signal['type'])} size="sm" className="w-28"
+              options={[
+                { value: 'handoff', label: 'Handoff' },
+                { value: 'blocker', label: 'Blocker' },
+                { value: 'request', label: 'Request' },
+                { value: 'update', label: 'Update' },
+                { value: 'done', label: 'Done' },
+              ]} />
           </div>
           <div className="flex gap-2">
             <input value={message} onChange={e => setMessage(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && createSignal()}
               placeholder="Signal message..."
-              className="flex-1 text-xs bg-white/5 border border-white/8 rounded px-2 py-1 text-white/80 placeholder:text-white/20 outline-none" />
+              className="flex-1 input-field-sm" />
             <button onClick={createSignal} disabled={!from || !to || !message.trim()}
-              className="text-xs px-3 py-1 rounded bg-amber/20 text-amber border border-amber/30 disabled:opacity-20 transition-all">
+              className="btn-primary">
               Send
             </button>
           </div>

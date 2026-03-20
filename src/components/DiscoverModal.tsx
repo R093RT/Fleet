@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useStore } from '@/lib/store'
 import type { DiscoveredProcess } from '@/app/api/discover/route'
+import { PT } from './PirateTerm'
+import { usePirateClass, usePirateText } from '@/hooks/usePirateMode'
 
 // Browser-safe path.basename replacement
 const basename = (p: string) => p.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? p
@@ -59,32 +61,35 @@ export function DiscoverModal({ onClose }: { onClose: () => void }) {
     void scan()
   }
 
+  const pirateFont = usePirateClass()
+  const t = usePirateText()
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-surface-raised border border-white/10 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/8">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08]">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">Running Claude Processes</span>
+            <span className={`text-sm ${pirateFont} text-amber`}><PT k="Scout" /> — Running Processes</span>
             {!loading && <span className="text-xs opacity-30">{processes.length} found</span>}
           </div>
           <div className="flex items-center gap-2">
             <button onClick={scan} disabled={loading}
-              className="text-xs px-3 py-1 rounded bg-white/5 text-white/50 hover:text-white/90 border border-white/8 disabled:opacity-30 transition-all">
+              className="btn-ghost disabled:opacity-30">
               {loading ? 'Scanning...' : '↻ Refresh'}
             </button>
-            <button onClick={onClose} className="text-xs opacity-30 hover:opacity-100 px-2 py-1">ESC</button>
+            <button onClick={onClose} className="text-xs opacity-30 hover:opacity-100 transition-opacity px-2 py-1">ESC</button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {loading && (
-            <div className="text-center py-12 text-xs opacity-30 animate-pulse">Scanning for claude processes...</div>
+            <div className="text-center py-12 text-xs opacity-30 animate-pulse">{t('Scouting the seas for claude processes...', 'Scanning for claude processes...')}</div>
           )}
 
           {!loading && processes.length === 0 && (
             <div className="text-center py-12 text-xs opacity-20">
-              No untracked claude processes found.
-              <div className="mt-1 opacity-70">Start a claude agent outside Fleet and scan again.</div>
+              {t('No rogue pirates found on the seas.', 'No external claude processes found.')}
+              <div className="mt-1 opacity-70">{t('Start a claude agent outside Fleet and scout again.', 'Start a claude agent outside Fleet and scan again.')}</div>
             </div>
           )}
 
@@ -129,13 +134,12 @@ export function DiscoverModal({ onClose }: { onClose: () => void }) {
                     <span className="text-xs text-emerald-400/60">✓ Linked</span>
                   ) : matchedAgent ? (
                     <button onClick={() => handleLink(proc, matchedAgent.id)}
-                      className="text-xs px-3 py-1.5 rounded transition-all whitespace-nowrap"
-                      style={{ backgroundColor: 'rgba(212,168,67,0.12)', color: '#d4a843', border: '1px solid rgba(212,168,67,0.2)' }}>
+                      className="btn-primary whitespace-nowrap">
                       Link to {matchedAgent.name}
                     </button>
                   ) : (
                     <button onClick={() => handleAdopt(proc)}
-                      className="text-xs px-3 py-1.5 rounded bg-white/5 text-white/60 hover:text-white/90 border border-white/10 transition-all">
+                      className="btn-ghost">
                       Adopt
                     </button>
                   )}
@@ -145,8 +149,8 @@ export function DiscoverModal({ onClose }: { onClose: () => void }) {
           })}
         </div>
 
-        <div className="px-5 py-2 border-t border-white/5 text-xs opacity-15">
-          Adopted agents link to their session ID. Live output of the current run remains in the original terminal.
+        <div className="px-5 py-2 border-t border-white/[0.06] text-xs opacity-15">
+          {t('Recruited pirates link to their session ID.', 'Adopted agents link to their session ID.')} Live output of the current run remains in the original terminal.
         </div>
       </div>
     </div>
