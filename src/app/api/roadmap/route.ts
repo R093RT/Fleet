@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 const ROADMAP_PATH = process.env.ROADMAP_PATH || ''
 
-const RoadmapPutSchema = z.object({ content: z.string() })
+const RoadmapPutSchema = z.object({ content: z.string().max(1_000_000) })
 
 export async function GET() {
   if (!ROADMAP_PATH) {

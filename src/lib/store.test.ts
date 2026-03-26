@@ -255,7 +255,7 @@ describe('setVoyage', () => {
   })
 })
 
-describe('completeVoyageTask', () => {
+describe('toggleVoyageTask', () => {
   it('marks a task as completed', () => {
     useStore.getState().setVoyage({
       id: 'v1',
@@ -269,10 +269,33 @@ describe('completeVoyageTask', () => {
       startedAt: Date.now(),
     })
 
-    useStore.getState().completeVoyageTask('t1')
+    useStore.getState().toggleVoyageTask('t1')
     const tasks = useStore.getState().voyage!.tasks
     expect(tasks.find(t => t.id === 't1')?.completed).toBe(true)
     expect(tasks.find(t => t.id === 't1')?.completedAt).toBeDefined()
+  })
+
+  it('toggles a completed task back to incomplete', () => {
+    useStore.getState().setVoyage({
+      id: 'v1',
+      name: 'V',
+      treasureMap: '',
+      tasks: [
+        { id: 't1', name: 'Task 1', agentId: 'a1', completed: false },
+      ],
+      repos: [],
+      startedAt: Date.now(),
+    })
+
+    // Complete it
+    useStore.getState().toggleVoyageTask('t1')
+    expect(useStore.getState().voyage!.tasks[0]?.completed).toBe(true)
+    expect(useStore.getState().voyage!.tasks[0]?.completedAt).toBeDefined()
+
+    // Uncomplete it
+    useStore.getState().toggleVoyageTask('t1')
+    expect(useStore.getState().voyage!.tasks[0]?.completed).toBe(false)
+    expect(useStore.getState().voyage!.tasks[0]?.completedAt).toBeUndefined()
   })
 
   it('does not affect other tasks', () => {
@@ -288,13 +311,13 @@ describe('completeVoyageTask', () => {
       startedAt: Date.now(),
     })
 
-    useStore.getState().completeVoyageTask('t1')
+    useStore.getState().toggleVoyageTask('t1')
     expect(useStore.getState().voyage!.tasks.find(t => t.id === 't2')?.completed).toBe(false)
   })
 
   it('is a no-op when voyage is null', () => {
     // Should not throw
-    useStore.getState().completeVoyageTask('t1')
+    useStore.getState().toggleVoyageTask('t1')
     expect(useStore.getState().voyage).toBeNull()
   })
 
@@ -308,7 +331,7 @@ describe('completeVoyageTask', () => {
       startedAt: Date.now(),
     })
 
-    useStore.getState().completeVoyageTask('nonexistent')
+    useStore.getState().toggleVoyageTask('nonexistent')
     expect(useStore.getState().voyage!.tasks[0]?.completed).toBe(false)
   })
 })

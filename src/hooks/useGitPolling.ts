@@ -4,12 +4,14 @@ import { useEffect } from 'react'
 import { useStore } from '@/lib/store'
 
 export function useGitPolling(): void {
-  const agents = useStore(s => s.agents)
-  const updateAgent = useStore(s => s.updateAgent)
+  const agentCount = useStore(s => s.agents.length)
 
   useEffect(() => {
     const poll = async () => {
-      const paths = [...new Set(agents.map(a => a.path).filter(Boolean))]
+      // Read fresh agents to avoid stale closure (effect only restarts on agentCount change)
+      const freshAgents = useStore.getState().agents
+      const isAbsolute = (p: string) => /^[A-Za-z]:[/\\]|^\//.test(p)
+      const paths = [...new Set(freshAgents.map(a => a.worktreePath || a.path).filter(p => p && isAbsolute(p)))]
       if (paths.length === 0) return
       try {
         const res = await fetch('/api/git-status', {
@@ -18,17 +20,19 @@ export function useGitPolling(): void {
           body: JSON.stringify({ paths }),
         })
         const data = await res.json()
-        for (const agent of agents) {
-          if (data[agent.path]) {
-            updateAgent(agent.id, { git: data[agent.path] })
+        const { updateAgent } = useStore.getState()
+        for (const agent of freshAgents) {
+          const key = agent.worktreePath || agent.path
+          if (data[key]) {
+            updateAgent(agent.id, { git: data[key] })
           }
         }
-      } catch {}
+      } catch (e) {
+        console.warn('Git polling failed:', e instanceof Error ? e.message : String(e))
+      }
     }
     poll()
     const interval = setInterval(poll, 15000)
     return () => clearInterval(interval)
-    // agents.length used (not agents) to avoid restarting the interval on every agent field change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agents.length])
+  }, [agentCount])
 }

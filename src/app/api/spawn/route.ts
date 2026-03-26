@@ -3,16 +3,17 @@ import { spawn } from 'child_process'
 import { z } from 'zod'
 import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
 import { SafeId, SafeTool, AbsolutePath } from '@/lib/validate'
+import { liveProcesses } from '@/lib/process-registry'
 
 const SpawnRequestSchema = z.object({
   agentId: SafeId,
   repoPath: AbsolutePath,
-  prompt: z.string().min(1),
+  prompt: z.string().min(1).max(500_000),
   allowedTools: z.array(SafeTool).optional(),
 })
 
-// Track running agent processes
-const agentProcesses = new Map<string, { process: ReturnType<typeof spawn>, sessionId: string | null }>()
+// Session IDs tracked separately (liveProcesses only stores ChildProcess)
+const spawnSessionIds = new Map<string, string | null>()
 
 export async function POST(req: NextRequest) {
   const parsed = SpawnRequestSchema.safeParse(await req.json())
@@ -21,19 +22,19 @@ export async function POST(req: NextRequest) {
   }
   const { agentId, repoPath, prompt, allowedTools } = parsed.data
 
-  // Kill existing process for this agent if any
-  const existing = agentProcesses.get(agentId)
-  if (existing?.process) {
-    try { existing.process.kill() } catch {}
-    agentProcesses.delete(agentId)
+  // Kill existing process for this agent if any (checks shared registry)
+  const existing = liveProcesses.get(agentId)
+  if (existing) {
+    try { existing.kill() } catch {}
+    liveProcesses.delete(agentId)
+    spawnSessionIds.delete(agentId)
   }
 
   const tools = allowedTools ?? DEFAULT_ALLOWED_TOOLS
 
   try {
-    // Use claude -p for headless mode with streaming JSON
+    // Use claude for headless mode with streaming JSON
     const args = [
-      '-p', prompt,
       '--output-format', 'stream-json',
       '--max-turns', '50',
       ...tools.flatMap(t => ['--allowedTools', t]),
@@ -47,7 +48,12 @@ export async function POST(req: NextRequest) {
 
     let sessionId: string | null = null
 
-    agentProcesses.set(agentId, { process: proc, sessionId: null })
+    liveProcesses.set(agentId, proc)
+    spawnSessionIds.set(agentId, null)
+
+    // Deliver prompt via stdin to avoid shell interpretation of user content
+    proc.stdin?.write(prompt)
+    proc.stdin?.end()
 
     // Stream stdout to collect session info
     proc.stdout?.on('data', (data: Buffer) => {
@@ -57,15 +63,15 @@ export async function POST(req: NextRequest) {
           const msg = JSON.parse(line)
           if (msg.session_id) {
             sessionId = msg.session_id
-            const entry = agentProcesses.get(agentId)
-            if (entry) entry.sessionId = sessionId
+            spawnSessionIds.set(agentId, sessionId)
           }
         } catch {}
       }
     })
 
     proc.on('close', () => {
-      agentProcesses.delete(agentId)
+      liveProcesses.delete(agentId)
+      spawnSessionIds.delete(agentId)
     })
 
     // Wait a moment for session ID
@@ -74,7 +80,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       agentId,
-      sessionId: agentProcesses.get(agentId)?.sessionId || null,
+      sessionId: spawnSessionIds.get(agentId) || null,
       pid: proc.pid,
     })
   } catch (e: unknown) {
@@ -88,10 +94,10 @@ export async function GET(req: NextRequest) {
   const { data: agentId, success } = SafeId.safeParse(raw)
   if (!success) return NextResponse.json({ error: 'agentId required' }, { status: 400 })
 
-  const entry = agentProcesses.get(agentId)
+  const proc = liveProcesses.get(agentId)
   return NextResponse.json({
-    running: !!entry,
-    sessionId: entry?.sessionId || null,
-    pid: entry?.process.pid || null,
+    running: !!proc,
+    sessionId: spawnSessionIds.get(agentId) || null,
+    pid: proc?.pid || null,
   })
 }

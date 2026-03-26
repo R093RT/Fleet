@@ -55,9 +55,10 @@ export interface Agent {
   iterateThreshold: number
   iterateMaxRounds: number
 
-  // Agent type + roadmap config (persisted)
+  // Agent type + roadmap/vault config (persisted)
   agentType: 'worker' | 'quartermaster'
   injectRoadmap: boolean
+  injectVault: boolean
 
   // Budget (persisted)
   budgetCap: number | null
@@ -81,6 +82,7 @@ interface Store {
   filter: string
   setupComplete: boolean
   dailySpend: Record<string, number>
+  dailyBudgetCap: number | null
   voyage: Voyage | null
   voyagePendingLaunch: string[]
   pirateMode: boolean
@@ -96,9 +98,10 @@ interface Store {
   setRoadmap: (content: string) => void
   setSetupComplete: (v: boolean) => void
   addDailySpend: (date: string, amount: number) => void
+  setDailyBudgetCap: (cap: number | null) => void
   importAgentsFromConfig: (configs: AgentConfig[]) => void
   setVoyage: (v: Voyage | null) => void
-  completeVoyageTask: (taskId: string) => void
+  toggleVoyageTask: (taskId: string) => void
   setVoyagePendingLaunch: (ids: string[]) => void
   setPirateMode: (v: boolean) => void
 }
@@ -132,6 +135,7 @@ const makeAgent = (config: Partial<Agent>): Agent => ({
   iterateMaxRounds: 3,
   agentType: config.agentType ?? 'worker',
   injectRoadmap: config.injectRoadmap ?? false,
+  injectVault: config.injectVault ?? false,
   budgetCap: config.budgetCap ?? null,
   pid: null,
   iterationRound: 0,
@@ -151,6 +155,7 @@ export const useStore = create<Store>()(
       filter: 'all',
       setupComplete: false,
       dailySpend: {},
+      dailyBudgetCap: null,
       voyage: null,
       voyagePendingLaunch: [],
       pirateMode: true,
@@ -193,6 +198,8 @@ export const useStore = create<Store>()(
           return { dailySpend: updated }
         }),
 
+      setDailyBudgetCap: (cap) => set({ dailyBudgetCap: cap }),
+
       importAgentsFromConfig: (configs) =>
         set((s) => {
           const now = Date.now()
@@ -213,12 +220,17 @@ export const useStore = create<Store>()(
         }),
 
       setVoyage: (v) => set({ voyage: v }),
-      completeVoyageTask: (taskId) => set((s) => {
+      toggleVoyageTask: (taskId) => set((s) => {
         if (!s.voyage) return {}
         return {
           voyage: {
             ...s.voyage,
-            tasks: s.voyage.tasks.map(t => t.id === taskId ? { ...t, completed: true, completedAt: Date.now() } : t),
+            tasks: s.voyage.tasks.map(t => {
+              if (t.id !== taskId) return t
+              return t.completed
+                ? { ...t, completed: false, completedAt: undefined }
+                : { ...t, completed: true, completedAt: Date.now() }
+            }),
           },
         }
       }),
@@ -242,6 +254,7 @@ export const useStore = create<Store>()(
         roadmap: state.roadmap,
         setupComplete: state.setupComplete,
         dailySpend: state.dailySpend,
+        dailyBudgetCap: state.dailyBudgetCap,
         voyage: state.voyage,
         voyagePendingLaunch: [],
         pirateMode: state.pirateMode,

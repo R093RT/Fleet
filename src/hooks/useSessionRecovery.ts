@@ -20,6 +20,6 @@ export function useSessionRecovery(): void {
           }
         }
       })
-      .catch(() => {})
+      .catch((e) => console.warn('Session recovery failed:', e instanceof Error ? e.message : String(e)))
   }, [])
 }

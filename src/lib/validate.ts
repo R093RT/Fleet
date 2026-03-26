@@ -16,6 +16,7 @@ import { z } from 'zod'
 export const AbsolutePath = z
   .string()
   .min(1)
+  .max(1024)
   .refine((p) => path.isAbsolute(p), { message: 'Path must be absolute' })
 
 /** Agent IDs: alphanumeric, hyphens, underscores only. */

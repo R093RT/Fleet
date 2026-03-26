@@ -5,7 +5,7 @@ import path from 'path'
 import { z } from 'zod'
 import { AbsolutePath } from '@/lib/validate'
 
-const GitStatusSchema = z.object({ paths: z.array(AbsolutePath) })
+const GitStatusSchema = z.object({ paths: z.array(AbsolutePath).max(50) })
 
 function getGitInfo(repoPath: string) {
   if (!existsSync(path.join(repoPath, '.git'))) {

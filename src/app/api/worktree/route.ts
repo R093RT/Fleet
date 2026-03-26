@@ -15,7 +15,7 @@ function isGitRepo(repoPath: string): boolean {
 
 /** Run a git command via args array (never shell-interpolated strings). */
 function runGit(args: string[], cwd: string): { ok: boolean; stderr: string } {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf-8', shell: true, timeout: 15000 })
+  const r = spawnSync('git', args, { cwd, encoding: 'utf-8', timeout: 15000 })
   return { ok: r.status === 0 && !r.error, stderr: r.stderr ?? '' }
 }
 

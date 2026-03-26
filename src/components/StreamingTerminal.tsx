@@ -23,7 +23,7 @@ interface StreamMessage {
 }
 
 
-export function StreamingTerminal({ agent }: { agent: Agent }) {
+export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Agent; fillHeight?: boolean; autoFocus?: boolean }) {
   const { updateAgent, appendMessage } = useStore()
   const t = usePirateText()
   const [input, setInput] = useState('')
@@ -42,6 +42,40 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
   const sendPrompt = async (explicitPrompt?: string) => {
     const prompt = explicitPrompt ?? input.trim()
     if (!prompt || streaming) return
+
+    // Read fresh state to avoid stale prop issues
+    const freshState = useStore.getState()
+    const freshAgent = freshState.agents.find(a => a.id === agent.id)
+    const agentBudgetCap = freshAgent?.budgetCap ?? agent.budgetCap
+    const agentSessionCost = freshAgent?.sessionCost ?? agent.sessionCost
+
+    // Hard budget gate — block sends if per-agent cap exceeded
+    if (agentBudgetCap != null && agentSessionCost >= agentBudgetCap) {
+      appendMessage(agent.id, {
+        id: `msg-${Date.now()}-bg`,
+        role: 'system',
+        content: `🚫 Blocked — budget cap $${agentBudgetCap.toFixed(2)} reached ($${agentSessionCost.toFixed(4)} used). Reset session or raise cap.`,
+        timestamp: Date.now(),
+      })
+      return
+    }
+
+    // Hard daily budget gate — block sends if fleet-wide daily cap exceeded
+    const { dailyBudgetCap, dailySpend } = freshState
+    if (dailyBudgetCap != null) {
+      const today = new Date().toISOString().slice(0, 10)
+      const todaySpend = dailySpend[today] ?? 0
+      if (todaySpend >= dailyBudgetCap) {
+        appendMessage(agent.id, {
+          id: `msg-${Date.now()}-dg`,
+          role: 'system',
+          content: `🚫 Blocked — daily fleet budget $${dailyBudgetCap.toFixed(2)} reached ($${todaySpend.toFixed(4)} spent today). Raise daily cap to continue.`,
+          timestamp: Date.now(),
+        })
+        return
+      }
+    }
+
     if (!explicitPrompt) setInput('')
     iterCancelRef.current = false
     setStreaming(true)
@@ -82,7 +116,28 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
             timestamp: Date.now(),
           })
         }
-      } catch {}
+      } catch (e) {
+        console.warn('Roadmap injection failed:', e instanceof Error ? e.message : String(e))
+      }
+    }
+
+    // Inject vault context for agents with injectVault enabled
+    if (!agent.sessionId && agent.injectVault) {
+      try {
+        const v = await fetch('/api/vault')
+        const vd = await v.json()
+        if (vd.exists && vd.content) {
+          effectivePrompt = `[VAULT CONTEXT]\n${vd.content as string}\n\n${effectivePrompt}`
+          appendMessage(agent.id, {
+            id: `msg-${Date.now()}-vi`,
+            role: 'system',
+            content: `📚 Vault context injected (${((vd.content as string).length / 1000).toFixed(1)}k chars)`,
+            timestamp: Date.now(),
+          })
+        }
+      } catch (e) {
+        console.warn('Vault injection failed:', e instanceof Error ? e.message : String(e))
+      }
     }
 
     // Resolve effective working path — create a worktree on first spawn
@@ -99,7 +154,9 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
           updateAgent(agent.id, { worktreePath: wt.worktreePath, worktreeBranch: wt.branchName })
           effectivePath = wt.worktreePath
         }
-      } catch {}
+      } catch (e) {
+        console.warn('Worktree creation failed:', e instanceof Error ? e.message : String(e))
+      }
       // If worktree creation fails (not a git repo, etc.) we fall back to agent.path
     }
 
@@ -160,17 +217,23 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
                 timestamp: Date.now(),
               })
 
+              // Read fresh state to avoid stale closure during auto-iterate
+              const freshStats = useStore.getState().agents.find(a => a.id === agent.id)
+              const prevCost = freshStats?.sessionCost ?? agent.sessionCost ?? 0
+              const prevTurns = freshStats?.sessionTurns ?? agent.sessionTurns ?? 0
+              const prevTokens = freshStats?.sessionTokens ?? agent.sessionTokens ?? 0
+
               const addedTokens = (msg.inputTokens ?? 0) + (msg.outputTokens ?? 0)
-              const newCost = (agent.sessionCost || 0) + (msg.cost || 0)
+              const newCost = prevCost + (msg.cost || 0)
               updateAgent(agent.id, {
                 status: 'done',
                 lastUpdate: Date.now(),
                 isStreaming: false,
                 sessionCost: newCost,
-                sessionTurns: (agent.sessionTurns || 0) + 1,
+                sessionTurns: prevTurns + 1,
                 sessionTokens: addedTokens > 0
-                  ? (agent.sessionTokens || 0) + addedTokens
-                  : agent.sessionTokens,
+                  ? prevTokens + addedTokens
+                  : prevTokens,
               })
 
               // Track daily spend
@@ -179,27 +242,45 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
                 useStore.getState().addDailySpend(today, msg.cost)
               }
 
-              // Budget cap soft warning
-              if (agent.budgetCap != null && newCost >= agent.budgetCap) {
+              // Hard budget cap — kill the process when exceeded (read fresh cap in case user changed it)
+              const currentCap = useStore.getState().agents.find(a => a.id === agent.id)?.budgetCap ?? agent.budgetCap
+              if (currentCap != null && newCost >= currentCap) {
                 appendMessage(agent.id, {
                   id: `msg-${Date.now()}-bc`,
                   role: 'system',
-                  content: `⚠️ Budget cap $${agent.budgetCap.toFixed(2)} reached. Session cost: $${newCost.toFixed(4)}`,
+                  content: `🚫 Budget cap $${currentCap.toFixed(2)} reached ($${newCost.toFixed(4)} used). Agent stopped. Reset session or raise cap to continue.`,
                   timestamp: Date.now(),
                 })
+                // Kill the running process
+                fetch('/api/kill', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ agentId: agent.id }),
+                }).catch(() => {})
+                // Cancel auto-iteration
+                iterRef.current = null
+                pendingPromptRef.current = null
+                iterCancelRef.current = true
+                updateAgent(agent.id, { status: 'error', isStreaming: false, iterationRound: 0 })
               }
 
-              // Auto-complete voyage tasks for this agent when done
+              // Auto-complete first incomplete voyage task for this agent
               const currentVoyage = useStore.getState().voyage
               if (currentVoyage) {
-                const agentTasks = currentVoyage.tasks.filter(t => t.agentId === agent.id && !t.completed)
-                for (const task of agentTasks) {
-                  useStore.getState().completeVoyageTask(task.id)
+                const firstIncomplete = currentVoyage.tasks.find(t => t.agentId === agent.id && !t.completed)
+                if (firstIncomplete) {
+                  useStore.getState().toggleVoyageTask(firstIncomplete.id)
                 }
               }
 
-              // Auto-iterate logic
-              if (agent.autoIterate) {
+              // Read fresh agent state for auto-iterate config (avoids stale closure)
+              const freshIterAgent = useStore.getState().agents.find(a => a.id === agent.id)
+              const autoIterate = freshIterAgent?.autoIterate ?? agent.autoIterate
+              const iterateThreshold = freshIterAgent?.iterateThreshold ?? agent.iterateThreshold
+              const iterateMaxRounds = freshIterAgent?.iterateMaxRounds ?? agent.iterateMaxRounds
+
+              // Auto-iterate logic (skip if over budget)
+              if (autoIterate && !(currentCap != null && newCost >= currentCap)) {
                 if (iterRef.current === null) {
                   // First task completion — kick off auto-rating
                   iterRef.current = { mode: 'rating', round: 1 }
@@ -211,12 +292,12 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
                   const score = parseScore(finalText)
                   if (score !== null) {
                     updateAgent(agent.id, { score, iterationScore: score })
-                    if (score < agent.iterateThreshold && iterRef.current.round < agent.iterateMaxRounds) {
+                    if (score < iterateThreshold && iterRef.current.round < iterateMaxRounds) {
                       const nextRound = iterRef.current.round + 1
                       iterRef.current = { mode: 'improving', round: nextRound }
                       updateAgent(agent.id, { iterationRound: nextRound })
                       pendingPromptRef.current = `Your score was ${score}/100. Improve the specific areas you identified.`
-                      appendMessage(agent.id, { id: `msg-${Date.now()}-ai`, role: 'system', content: `⟳ Auto-iterate: score ${score}/100 < ${agent.iterateThreshold}. Improving (round ${nextRound}/${agent.iterateMaxRounds})...`, timestamp: Date.now() })
+                      appendMessage(agent.id, { id: `msg-${Date.now()}-ai`, role: 'system', content: `⟳ Auto-iterate: score ${score}/100 < ${iterateThreshold}. Improving (round ${nextRound}/${iterateMaxRounds})...`, timestamp: Date.now() })
                     } else {
                       iterRef.current = null
                       updateAgent(agent.id, { iterationRound: 0 })
@@ -264,7 +345,9 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
                 timestamp: Date.now(),
               })
             }
-          } catch {}
+          } catch (e) {
+            console.warn('Failed to parse SSE line:', e instanceof Error ? e.message : String(e))
+          }
         }
       }
     } catch (e: unknown) {
@@ -299,15 +382,25 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
   }
 
   const handleResume = () => {
-    setInput('')
+    setInput('Continue where you left off.')
     inputRef.current?.focus()
   }
 
-  // Pick up prompts injected by the reactions engine
+  // Auto-focus input when requested (e.g. QM panel)
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus()
+  }, [autoFocus])
+
+  // Pick up prompts injected by the reactions engine.
+  // Uses atomic check-and-clear via getState() to prevent duplicate sends
+  // if two StreamingTerminal instances exist for the same agent (e.g. QmChatPanel + AgentCard).
   useEffect(() => {
     if (agent.pendingTrigger && !streaming) {
-      const prompt = agent.pendingTrigger
-      updateAgent(agent.id, { pendingTrigger: null })
+      const state = useStore.getState()
+      const fresh = state.agents.find(a => a.id === agent.id)
+      if (!fresh?.pendingTrigger) return // another instance already consumed it
+      const prompt = fresh.pendingTrigger
+      state.updateAgent(agent.id, { pendingTrigger: null })
       void sendPrompt(prompt)
     }
   // sendPrompt is stable (defined in component body; deps don't change identity)
@@ -320,17 +413,38 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
     if (!state.voyagePendingLaunch.includes(agent.id)) return
     if (streaming || agent.sessionId) return
 
+    // Block launch if daily budget cap exceeded
+    if (state.dailyBudgetCap != null) {
+      const today = new Date().toISOString().slice(0, 10)
+      const todaySpend = state.dailySpend[today] ?? 0
+      if (todaySpend >= state.dailyBudgetCap) {
+        state.setVoyagePendingLaunch(state.voyagePendingLaunch.filter(id => id !== agent.id))
+        appendMessage(agent.id, {
+          id: `msg-${Date.now()}-dg`,
+          role: 'system',
+          content: `🚫 Launch blocked — daily fleet budget $${state.dailyBudgetCap.toFixed(2)} reached. Raise daily cap to launch.`,
+          timestamp: Date.now(),
+        })
+        return
+      }
+    }
+
     // Remove this agent from the pending list
     state.setVoyagePendingLaunch(state.voyagePendingLaunch.filter(id => id !== agent.id))
 
     // Build the auto-launch prompt with treasure map + mission
     const voyage = state.voyage
     const missionTasks = voyage?.tasks.filter(t => t.agentId === agent.id).map(t => t.name) ?? []
+    // Extract territory from task description if present
+    const territoryMatch = agent.task.match(/\[TERRITORY: (.+?)\]/)
+    const territory = territoryMatch?.[1] ?? null
+
     const prompt = [
       voyage?.treasureMap ? `[TREASURE MAP]\n${voyage.treasureMap}` : '',
       `\n[YOUR MISSION]\nYou are ${agent.name}, the ${agent.role} of this crew.`,
       missionTasks.length > 0 ? `Your assigned tasks:\n${missionTasks.map(t => `- ${t}`).join('\n')}` : '',
       agent.task ? `\nDescription: ${agent.task}` : '',
+      territory ? `\n[YOUR TERRITORY]\nYou are responsible for these files/directories:\n${territory.split(', ').map(t => `- ${t}`).join('\n')}\n\nStay within your territory. Do NOT modify files outside these paths unless absolutely necessary. If you need changes outside your territory, send a signal to the appropriate crew member.` : '',
       '\nBegin working on your tasks. Start with the highest priority items.',
     ].filter(Boolean).join('\n')
 
@@ -341,11 +455,11 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
   }, [])
 
   return (
-    <div className="border-t border-white/5">
+    <div className={`border-t border-white/5 ${fillHeight ? 'flex-1 flex flex-col min-h-0' : ''}`}>
       <SessionStatsBar agent={agent} streaming={streaming} />
 
       {/* Message history + live stream */}
-      <div ref={scrollRef} className="h-64 overflow-y-auto p-3 space-y-1.5 bg-black/30 font-mono text-xs">
+      <div ref={scrollRef} className={`${fillHeight ? 'flex-1 min-h-0' : 'h-64'} overflow-y-auto p-3 space-y-1.5 bg-black/30 font-mono text-xs`}>
         {agent.messages.length === 0 && liveOutput.length === 0 && (
           <div className="opacity-15 text-center py-12">{t(`Give orders to start this pirate in ${agent.repo}...`, `Enter a prompt to start this agent in ${agent.repo}...`)}</div>
         )}
@@ -441,6 +555,32 @@ export function StreamingTerminal({ agent }: { agent: Agent }) {
             className="text-xs px-2 py-1.5 rounded bg-violet-500/15 text-violet-400/80 border border-violet-500/20 hover:bg-violet-500/25 transition-all"
             title="Save last response to the roadmap file">
             {t('📝→ Treasure Map', '📝→ Roadmap')}
+          </button>
+        )}
+        {!streaming && agent.agentType === 'quartermaster' && lastAssistantText && (
+          <button
+            onClick={() => {
+              const title = `Fleet_Research_${new Date().toISOString().slice(0, 10)}`
+              void fetch('/api/vault', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, content: lastAssistantText, folder: '2_ResourceLedger/2.4_Research' }),
+              }).then(async (res) => {
+                const data = await res.json()
+                appendMessage(agent.id, {
+                  id: `msg-${Date.now()}-vs`,
+                  role: 'system',
+                  content: (data as { success: boolean; filename?: string; error?: string }).success
+                    ? `📚 Saved to vault: ${(data as { filename: string }).filename}`
+                    : `Failed to save to vault: ${(data as { error?: string }).error ?? 'unknown'}`,
+                  timestamp: Date.now(),
+                })
+                if ((data as { success: boolean }).success) setLastAssistantText(null)
+              })
+            }}
+            className="text-xs px-2 py-1.5 rounded bg-emerald-500/15 text-emerald-400/80 border border-emerald-500/20 hover:bg-emerald-500/25 transition-all"
+            title="Save last response as a note in the Obsidian vault">
+            {t('📚 Stash in Vault', '📚→ Vault')}
           </button>
         )}
         {streaming ? (

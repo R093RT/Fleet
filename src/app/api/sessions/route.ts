@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { existsSync, readdirSync, readFileSync, rmSync } from 'fs'
 import path from 'path'
 import { z } from 'zod'
+import { SafeId } from '@/lib/validate'
 
 const sessionsDir = () => path.join(process.cwd(), '.fleet', 'sessions')
 
@@ -26,7 +27,7 @@ export async function GET() {
   }
 }
 
-const DeleteSchema = z.object({ agentId: z.string() })
+const DeleteSchema = z.object({ agentId: SafeId })
 
 export async function DELETE(req: NextRequest) {
   const parsed = DeleteSchema.safeParse(await req.json())

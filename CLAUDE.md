@@ -15,7 +15,6 @@ It is not a hosted service. Fleet runs entirely on your machine. Claude Code CLI
 - **Zustand 5** — all client state, persisted to localStorage under key `fleet-store`
 - **Tailwind CSS 3.4** — dark theme, JetBrains Mono everywhere
 - **Node.js child_process** — `spawn()` and `execSync()` to call `claude` CLI and `git`
-- `simple-git` and `chokidar` are in package.json but **not used** — all git runs via `execSync`, file watching via native `fs.watch`
 
 ---
 
@@ -202,9 +201,6 @@ Submitting calls `setSetupComplete(true)` and redirects to the dashboard.
 
 ## Known issues / things to fix
 
-- `layout.tsx` metadata title still says `"Agent Command — Resource Ledger"` — should be `"Fleet"`
-- `send-message/route.ts` uses `execSync` which **blocks the entire Node.js thread** for up to 5 minutes — fine for local use, problematic at scale
-- `simple-git` and `chokidar` are installed but unused — safe to remove
 - No authentication — Fleet is local-only; do not expose port 4000 externally
 - `diff/route.ts` checks `existsSync(path.join(repoPath, '.git'))` — this works correctly for both normal repos (`.git` dir) and worktrees (`.git` file)
 

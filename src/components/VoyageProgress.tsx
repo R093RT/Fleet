@@ -7,7 +7,7 @@ import { TreasureChestIcon } from './PirateDecorations'
 import { usePirateMode, usePirateClass } from '@/hooks/usePirateMode'
 
 export function VoyageProgress() {
-  const { voyage, agents, completeVoyageTask } = useStore()
+  const { voyage, agents, toggleVoyageTask, setExpanded: setExpandedAgent } = useStore()
   const [expanded, setExpanded] = useState(false)
   const isPirate = usePirateMode()
   const pirateFont = usePirateClass()
@@ -77,14 +77,18 @@ export function VoyageProgress() {
                   <input
                     type="checkbox"
                     checked={task.completed}
-                    onChange={() => completeVoyageTask(task.id)}
+                    onChange={() => toggleVoyageTask(task.id)}
                     className="accent-amber-500 w-3 h-3 flex-shrink-0"
                   />
                   <span className={`flex-1 min-w-0 truncate ${task.completed ? 'line-through opacity-30' : 'text-white/60'}`}>
                     {task.name}
                   </span>
                   {taskAgent && (
-                    <span className={`text-white/20 flex-shrink-0 ${pirateFont}`}>{taskAgent.name}</span>
+                    <button
+                      onClick={() => setExpandedAgent(taskAgent.id)}
+                      className={`text-white/20 hover:text-white/50 flex-shrink-0 transition-colors ${pirateFont}`}
+                      title={`Open ${taskAgent.name}`}
+                    >{taskAgent.name}</button>
                   )}
                 </div>
               )

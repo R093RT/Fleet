@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
 const StreamRequestSchema = z.object({
   agentId: SafeId,
   repoPath: AbsolutePath,
-  prompt: z.string().min(1),
+  prompt: z.string().min(1).max(500_000),
   sessionId: SafeSessionId.nullable().optional(),
   allowedTools: z.array(SafeTool).optional(),
 })
@@ -44,7 +44,9 @@ function writeSessionFile(agentId: string, update: { sessionId: string | null; c
     }
 
     if (existsSync(filePath)) {
-      try { existing = JSON.parse(readFileSync(filePath, 'utf-8')) as SessionFile } catch {}
+      try { existing = JSON.parse(readFileSync(filePath, 'utf-8')) as SessionFile } catch (e) {
+        console.warn('Failed to parse session file:', e instanceof Error ? e.message : String(e))
+      }
     }
 
     const updated: SessionFile = {
@@ -57,7 +59,9 @@ function writeSessionFile(agentId: string, update: { sessionId: string | null; c
     }
 
     writeFileSync(filePath, JSON.stringify(updated, null, 2))
-  } catch {}
+  } catch (e) {
+    console.warn('Failed to write session file:', e instanceof Error ? e.message : String(e))
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -79,16 +83,18 @@ export async function POST(req: NextRequest) {
 
   const tools = allowedTools ?? DEFAULT_ALLOWED_TOOLS
 
+  const isResume = !!sessionId
+
   const args = [
-    '-p', prompt,
     '--output-format', 'stream-json',
     '--max-turns', '50',
     ...tools.flatMap(t => ['--allowedTools', t]),
   ]
 
-  // Resume existing session if we have one
-  if (sessionId) {
-    args.push('--session-id', sessionId, '--resume')
+  // For resumed sessions, pass prompt via -p (guaranteed CLI support).
+  // For first-run, deliver via stdin to keep user content off the command line.
+  if (isResume) {
+    args.push('--session-id', sessionId, '--resume', '-p', prompt)
   }
 
   const encoder = new TextEncoder()
@@ -104,6 +110,12 @@ export async function POST(req: NextRequest) {
 
       // Register in the process registry so /api/kill can terminate it
       liveProcesses.set(agentId, proc)
+
+      // For first-run (no session), deliver prompt via stdin
+      if (!isResume) {
+        proc.stdin?.write(prompt)
+        proc.stdin?.end()
+      }
 
       let buffer = ''
 
