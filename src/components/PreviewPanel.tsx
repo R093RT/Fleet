@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react'
 import type { Agent } from '@/lib/store'
+import { buildSafeLocalhostUrl } from '@/lib/url-validation'
 
 interface DiffResult {
   beforePath: string
@@ -15,7 +16,10 @@ interface DiffResult {
 export function PreviewPanel({ agent }: { agent: Agent }) {
   const [port, setPort] = useState(agent.devPort?.toString() || '')
   const [path, setPath] = useState(agent.previewPath || '/')
-  const [url, setUrl] = useState(agent.devPort ? `http://localhost:${agent.devPort}${agent.previewPath || '/'}` : '')
+  const [url, setUrl] = useState(() => {
+    if (!agent.devPort) return ''
+    return buildSafeLocalhostUrl(String(agent.devPort), agent.previewPath || '/') || ''
+  })
   const [key, setKey] = useState(0)
   const [beforePath, setBeforePath] = useState<string | null>(null)
   const [diffResult, setDiffResult] = useState<DiffResult | null>(null)
@@ -25,8 +29,9 @@ export function PreviewPanel({ agent }: { agent: Agent }) {
 
   const load = () => {
     if (port) {
-      setUrl(`http://localhost:${port}${path}`)
-      setKey(k => k + 1)
+      const safe = buildSafeLocalhostUrl(port, path)
+      if (safe) { setUrl(safe); setKey(k => k + 1); setCaptureError(null) }
+      else { setCaptureError('Invalid URL — only http://localhost is allowed') }
     }
   }
 
@@ -133,7 +138,7 @@ export function PreviewPanel({ agent }: { agent: Agent }) {
       {/* iframe */}
       {url ? (
         <div ref={ref} style={{ height: 450 }} className="relative">
-          <iframe key={key} src={url} className="w-full h-full border-0" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" />
+          <iframe key={key} src={url} className="w-full h-full border-0" sandbox="allow-scripts allow-forms allow-popups" />
           <div className="absolute bottom-2 right-2 text-xs font-mono opacity-15 bg-black/60 px-1.5 py-0.5 rounded">{url}</div>
           {beforePath && !diffResult && (
             <div className="absolute bottom-2 left-2 text-xs font-mono opacity-30 bg-black/60 px-1.5 py-0.5 rounded">📸 baseline set</div>

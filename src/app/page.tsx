@@ -18,9 +18,11 @@ import { CompassRose } from '@/components/PirateDecorations'
 import { PT } from '@/components/PirateTerm'
 import { VoyageProgress } from '@/components/VoyageProgress'
 import { usePirateMode, usePirateClass, usePirateText } from '@/hooks/usePirateMode'
+import { QmChatPanel } from '@/components/QmChatPanel'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 export default function Dashboard() {
-  const { agents, filter, setupComplete, setFilter, dailySpend } = useStore()
+  const { agents, filter, setupComplete, setFilter, dailySpend, dailyBudgetCap, setDailyBudgetCap } = useStore()
   const isPirate = usePirateMode()
   const pirateFont = usePirateClass()
   const t = usePirateText()
@@ -28,6 +30,7 @@ export default function Dashboard() {
   const [showAdd, setShowAdd] = useState(false)
   const [showDiscover, setShowDiscover] = useState(false)
   const [showQr, setShowQr] = useState(false)
+  const [showQmChat, setShowQmChat] = useState(false)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
@@ -39,9 +42,11 @@ export default function Dashboard() {
     setShowAdd(false)
     setShowDiscover(false)
     setShowQr(false)
+    setShowQmChat(false)
   }, [])
   const handleRoadmap = useCallback(() => setShowRoadmap(true), [])
-  useKeyboardShortcuts({ onEscape: handleEscape, onRoadmap: handleRoadmap })
+  const handleQmChat = useCallback(() => setShowQmChat(v => !v), [])
+  useKeyboardShortcuts({ onEscape: handleEscape, onRoadmap: handleRoadmap, onQmChat: handleQmChat })
 
   if (!mounted) return null
   if (!setupComplete) return <SetupWizard />
@@ -76,6 +81,8 @@ export default function Dashboard() {
         onShowAdd={() => setShowAdd(true)}
         onShowDiscover={() => setShowDiscover(true)}
         onShowQr={() => setShowQr(true)}
+        onShowQmChat={handleQmChat}
+        qmChatOpen={showQmChat}
       />
 
       {/* Voyage progress */}
@@ -93,9 +100,34 @@ export default function Dashboard() {
         <ReactionsPanel />
       </div>
 
+      {/* Onboarding nudge — shows when agents exist but none have been started */}
+      {agents.length > 0 && runCount === 0 && agents.every(a => !a.sessionId && a.status === 'idle') && (
+        <div className="max-w-6xl mx-auto px-5 pt-3">
+          <div className="rounded-lg border border-amber-500/15 bg-amber-500/[0.04] px-4 py-3 text-xs text-amber-400/70 flex items-start gap-2">
+            <span className="mt-0.5">💡</span>
+            <div>
+              <span className="font-medium text-amber-400/90">{t('Ready to set sail!', 'Ready to start!')}</span>{' '}
+              {t(
+                'Click a pirate below, open the Terminal tab, and give yer first order to start working.',
+                'Expand an agent below, switch to the Terminal tab, and enter a prompt to start working.'
+              )}
+              {agents.some(a => !a.path) && (
+                <span className="block mt-1 text-red-400/60">
+                  ⚠ Some agents have no repo path set — open their Config to set one before starting.
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Agent list */}
       <div className="max-w-6xl mx-auto px-5 py-4 space-y-3">
-        {filtered.map(a => <AgentCard key={a.id} agent={a} />)}
+        {filtered.map(a => (
+          <ErrorBoundary key={a.id} label={a.name} compact>
+            <AgentCard agent={a} />
+          </ErrorBoundary>
+        ))}
         {filtered.length === 0 && (
           <div className="text-center py-20 opacity-15 text-sm">
             {filter === 'all'
@@ -115,9 +147,26 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden sm:inline opacity-30" title="Average Quality Score"><PT k="Morale" className="border-0" />: {(() => { const s = agents.filter(a => a.score !== null); return s.length ? Math.round(s.reduce((t, a) => t + (a.score || 0), 0) / s.length) : '—' })()}</span>
-            {todaySpend > 0 && (
-              <span className={`tabular-nums font-mono ${todaySpend > 2 ? 'text-red-400' : todaySpend > 0.5 ? 'text-amber-400' : 'opacity-30'}`}>
-                ${todaySpend.toFixed(4)} today
+            {/* Daily spend + budget bar */}
+            {(todaySpend > 0 || dailyBudgetCap != null) && (
+              <span className={`tabular-nums font-mono flex items-center gap-1 ${dailyBudgetCap != null && todaySpend >= dailyBudgetCap ? 'text-red-400' : dailyBudgetCap != null && todaySpend >= dailyBudgetCap * 0.8 ? 'text-amber-400' : todaySpend > 2 ? 'text-red-400' : todaySpend > 0.5 ? 'text-amber-400' : 'opacity-30'}`}>
+                {dailyBudgetCap != null && todaySpend >= dailyBudgetCap && (
+                  <span className="text-red-400 animate-pulse" title="All agents blocked — daily budget reached">🚫</span>
+                )}
+                ${todaySpend.toFixed(4)}
+                <span className="opacity-40">/</span>
+                <span className="opacity-50" title="Daily fleet budget cap — click to edit">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={dailyBudgetCap ?? ''}
+                  placeholder="∞"
+                  onChange={e => setDailyBudgetCap(e.target.value ? parseFloat(e.target.value) : null)}
+                  className="w-10 bg-transparent border-b border-white/10 text-center tabular-nums font-mono outline-none text-inherit focus:text-white/60 focus:border-amber/40 placeholder:text-white/15"
+                  title="Daily fleet budget cap (USD). Leave empty for unlimited."
+                />
+                <span className="opacity-30">today</span>
               </span>
             )}
             {totalSpend > todaySpend && totalSpend > 0 && (
@@ -129,10 +178,13 @@ export default function Dashboard() {
       </div>
 
       {/* Modals */}
-      {showRoadmap && <RoadmapModal onClose={() => setShowRoadmap(false)} />}
-      {showAdd && <AddAgentModal onClose={() => setShowAdd(false)} />}
-      {showDiscover && <DiscoverModal onClose={() => setShowDiscover(false)} />}
-      {showQr && <QrModal onClose={() => setShowQr(false)} />}
+      <ErrorBoundary label="Modal" onDismiss={() => { setShowRoadmap(false); setShowAdd(false); setShowDiscover(false); setShowQr(false); setShowQmChat(false) }}>
+        {showRoadmap && <RoadmapModal onClose={() => setShowRoadmap(false)} />}
+        {showAdd && <AddAgentModal onClose={() => setShowAdd(false)} />}
+        {showDiscover && <DiscoverModal onClose={() => setShowDiscover(false)} />}
+        {showQr && <QrModal onClose={() => setShowQr(false)} />}
+        {showQmChat && <QmChatPanel onClose={() => setShowQmChat(false)} onShowAdd={() => setShowAdd(true)} />}
+      </ErrorBoundary>
     </div>
   )
 }

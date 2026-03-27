@@ -29,6 +29,16 @@ interface Signal {
   resolved: boolean
 }
 
+const MAX_SIGNALS = 500
+const RESOLVED_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+
+function pruneSignals(signals: Signal[]): Signal[] {
+  const now = Date.now()
+  let pruned = signals.filter(s => !s.resolved || (now - s.timestamp) < RESOLVED_MAX_AGE_MS)
+  if (pruned.length > MAX_SIGNALS) pruned = pruned.slice(-MAX_SIGNALS)
+  return pruned
+}
+
 function ensureDir() {
   if (!existsSync(SIGNALS_DIR)) {
     mkdirSync(SIGNALS_DIR, { recursive: true })
@@ -53,7 +63,8 @@ function readSignals(): Signal[] {
 
 function writeSignals(signals: Signal[]) {
   ensureDir()
-  writeFileSync(getSignalsFile(), JSON.stringify(signals, null, 2), 'utf-8')
+  const pruned = pruneSignals(signals)
+  writeFileSync(getSignalsFile(), JSON.stringify(pruned, null, 2), 'utf-8')
 }
 
 const signalsMutex = createMutex()

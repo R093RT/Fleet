@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { spawnSync } from 'child_process'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'fs'
 import path from 'path'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
@@ -19,6 +19,22 @@ function ensureDir() {
   if (!existsSync(SCREENSHOT_DIR)) {
     mkdirSync(SCREENSHOT_DIR, { recursive: true })
   }
+}
+
+const MAX_TIMESTAMPED_PER_AGENT = 10
+
+function pruneTimestampedScreenshots(agentId: string) {
+  try {
+    const files = readdirSync(SCREENSHOT_DIR)
+    const tsPattern = new RegExp(`^${agentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d+)\\.png$`)
+    const timestamped = files
+      .map(f => { const m = tsPattern.exec(f); return m ? { file: f, ts: parseInt(m[1]!, 10) } : null })
+      .filter((x): x is { file: string; ts: number } => x !== null)
+      .sort((a, b) => a.ts - b.ts)
+    for (const { file } of timestamped.slice(0, -MAX_TIMESTAMPED_PER_AGENT)) {
+      try { unlinkSync(path.join(SCREENSHOT_DIR, file)) } catch {}
+    }
+  } catch (e) { console.warn('Screenshot prune failed:', e instanceof Error ? e.message : String(e)) }
 }
 
 function capturePlaywright(url: string, filepath: string): boolean {
@@ -129,6 +145,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Default (no label): timestamped file — existing behaviour
+  pruneTimestampedScreenshots(agentId)
   const filename = `${agentId}-${Date.now()}.png`
   const filepath = path.join(SCREENSHOT_DIR, filename)
 
@@ -158,9 +175,20 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
   const { agentId } = parsed.data
+  // Labeled screenshots
   for (const label of ['before', 'after', 'diff']) {
     const fp = path.join(SCREENSHOT_DIR, `${agentId}-${label}.png`)
     try { if (existsSync(fp)) unlinkSync(fp) } catch {}
   }
+  // Timestamped screenshots
+  try {
+    const files = readdirSync(SCREENSHOT_DIR)
+    const tsPattern = new RegExp(`^${agentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d+\\.png$`)
+    for (const f of files) {
+      if (tsPattern.test(f)) {
+        try { unlinkSync(path.join(SCREENSHOT_DIR, f)) } catch {}
+      }
+    }
+  } catch {}
   return NextResponse.json({ success: true })
 }

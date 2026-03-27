@@ -243,7 +243,12 @@ export const useStore = create<Store>()(
         agents: state.agents.map((a) => ({
           ...a,
           // Don't persist runtime-only state
-          messages: a.messages.slice(-50),
+          messages: a.messages.slice(-50).map(m => ({
+            ...m,
+            content: m.content.length > 10_000
+              ? m.content.slice(0, 10_000) + '\n\u2026[truncated]'
+              : m.content,
+          })),
           isStreaming: false,
           pid: null,
           iterationRound: 0,
