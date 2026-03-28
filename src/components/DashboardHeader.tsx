@@ -17,6 +17,8 @@ interface DashboardHeaderProps {
   onShowAdd: () => void
   onShowDiscover: () => void
   onShowQr: () => void
+  onShowQmChat: () => void
+  qmChatOpen?: boolean
 }
 
 const FILTER_TABS = [
@@ -38,6 +40,8 @@ export function DashboardHeader({
   onShowAdd,
   onShowDiscover,
   onShowQr,
+  onShowQmChat,
+  qmChatOpen,
 }: DashboardHeaderProps) {
   const pirateFont = usePirateClass()
   const pirateMode = useStore(s => s.pirateMode)
@@ -85,29 +89,39 @@ export function DashboardHeader({
                 {attnCount} need{attnCount === 1 ? 's' : ''} attention
               </button>
             )}
-            <button
-              onClick={handleToggle}
-              className="btn-ghost px-2.5 text-xs flex items-center gap-1.5"
-              title={pirateMode ? 'Switch to professional mode' : 'Switch to pirate mode'}>
-              {pirateMode ? '🏴‍☠️' : '💼'}
-              <span className="hidden md:inline opacity-50">{pirateMode ? 'Pirate' : 'Pro'}</span>
-            </button>
-            <button onClick={onShowQr}
-              className="btn-ghost px-2"
-              title="Open Fleet on mobile">
-              📱
-            </button>
-            <button onClick={onShowDiscover}
-              className="btn-ghost">
-              <PT k="Scout" className="border-0" />
+            {/* Primary actions — always visible */}
+            <button onClick={onShowQmChat}
+              className={`btn-ghost relative ${qmChatOpen ? 'bg-amber/10 border-amber/20 text-amber' : ''}`}
+              title="Quartermaster Chat (Ctrl+Shift+Q)">
+              ⚓ <PT k="First Mate" className="border-0" />
+              {!qmChatOpen && agents.some(a => a.agentType === 'quartermaster' && a.status === 'running') && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              )}
             </button>
             <button onClick={onShowRoadmap}
-              className="btn-ghost">
-              🗺️ <PT k="Treasure Map" className="border-0" /> <span className="opacity-30 ml-1">Ctrl+Shift+R</span>
+              className="btn-ghost"
+              title="Roadmap (Ctrl+Shift+R)">
+              🗺️ <PT k="Treasure Map" className="border-0" />
             </button>
             <button onClick={onShowAdd}
               className="btn-primary">
               <PT k="Recruit" className="border-0" />
+            </button>
+            {/* Secondary actions — hidden on small screens */}
+            <button onClick={onShowDiscover}
+              className="btn-ghost hidden sm:inline-flex">
+              <PT k="Scout" className="border-0" />
+            </button>
+            <button onClick={onShowQr}
+              className="btn-ghost px-2 hidden md:inline-flex"
+              title="Open Fleet on mobile">
+              📱
+            </button>
+            <button
+              onClick={handleToggle}
+              className="btn-ghost px-2.5 text-xs hidden sm:inline-flex items-center gap-1.5"
+              title={pirateMode ? 'Switch to professional mode' : 'Switch to pirate mode'}>
+              {pirateMode ? '🏴‍☠️' : '💼'}
             </button>
           </div>
         </div>

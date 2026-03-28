@@ -5,7 +5,7 @@ import { z } from 'zod'
 export const dynamic = 'force-dynamic'
 
 const RequestSchema = z.object({
-  roadmap: z.string().min(1).max(100_000),
+  roadmap: z.string().min(1).max(500_000),
   crewSize: z.number().int().min(1).max(20).optional(),
 })
 
@@ -16,6 +16,7 @@ const WorkstreamSchema = z.object({
   complexity: z.number().min(1).max(5),
   dependencies: z.array(z.string()),
   domain: z.string(),
+  territory: z.array(z.string()).default([]),
 })
 
 const AnalysisResultSchema = z.object({
@@ -30,11 +31,12 @@ export type AnalysisResult = z.infer<typeof AnalysisResultSchema>
 
 function spawnClaude(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const args = ['-p', prompt, '--output-format', 'json', '--max-turns', '1']
-    const child = spawn('claude', args, {
+    // Pipe prompt via stdin to avoid ENAMETOOLONG on large prompts
+    const child = spawn('claude', ['--output-format', 'json', '--max-turns', '1'], {
       env: { ...process.env },
       shell: true,
       timeout: 120_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
 
     let stdout = ''
@@ -42,6 +44,10 @@ function spawnClaude(prompt: string): Promise<string> {
 
     child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
     child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+
+    // Write prompt to stdin — claude reads from stdin when no -p is given
+    child.stdin.write(prompt)
+    child.stdin.end()
 
     child.on('close', (code) => {
       if (code !== 0 && !stdout.trim()) {
@@ -63,7 +69,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 400 })
     }
 
-    const { roadmap, crewSize } = parsed.data
+    const { crewSize } = parsed.data
+    // Truncate very long roadmaps to stay within reasonable prompt size
+    const MAX_PROMPT_CHARS = 200_000
+    const roadmap = parsed.data.roadmap.length > MAX_PROMPT_CHARS
+      ? parsed.data.roadmap.slice(0, MAX_PROMPT_CHARS) + '\n\n[... roadmap truncated at 200K characters ...]'
+      : parsed.data.roadmap
 
     const crewConstraint = crewSize
       ? `\n\nCONSTRAINT: The captain wants exactly ${crewSize} crew members. Redistribute the workstreams to fit this crew size. Merge related workstreams or split large ones as needed.`
@@ -78,6 +89,7 @@ For each workstream determine:
 - complexity: 1-5 (1=trivial, 5=massive)
 - dependencies: array of other workstream names this depends on
 - domain: one of [frontend, backend, testing, devops, database, docs, security, performance, general]
+- territory: array of file paths or glob patterns this workstream will touch (e.g. ["src/components/**", "src/lib/store.ts"]). Use actual paths from the project. Ensure no two workstreams share the same territory — if overlap is unavoidable, note it in dependencies.
 
 Also detect any repository paths or URLs mentioned in the roadmap.
 
@@ -85,7 +97,7 @@ Return ONLY valid JSON:
 {
   "summary": "1-2 sentence overview",
   "repos": ["any paths/URLs found in the roadmap"],
-  "workstreams": [{ "name": "...", "description": "...", "tasks": ["..."], "complexity": 1, "dependencies": [], "domain": "frontend" }],
+  "workstreams": [{ "name": "...", "description": "...", "tasks": ["..."], "complexity": 1, "dependencies": [], "domain": "frontend", "territory": ["src/components/**"] }],
   "recommendedCrewSize": <number>,
   "reasoning": "why this crew size is optimal"
 }${crewConstraint}

@@ -54,6 +54,7 @@ describe('assignPirateIdentities', () => {
     complexity: 3,
     dependencies: [],
     domain: 'frontend',
+    territory: [],
     ...overrides,
   })
 

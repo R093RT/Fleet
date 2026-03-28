@@ -11,7 +11,11 @@ export function AddAgentModal({ onClose }: { onClose: () => void }) {
 
   const handleSubmit = (v: AgentFormValues) => {
     const repo = v.path.replace(/\\/g, '/').split('/').pop() || v.name
-    addAgent({ name: v.name, role: v.role, repo, path: v.path, icon: v.icon, color: v.color, devPort: v.devPort ? parseInt(v.devPort) : null, agentType: v.agentType })
+    // Inherit daily budget cap as per-agent default (if set)
+    const { dailyBudgetCap, agents } = useStore.getState()
+    const activeCount = agents.length + 1
+    const defaultBudget = dailyBudgetCap != null ? Math.round((dailyBudgetCap / activeCount) * 100) / 100 : null
+    addAgent({ name: v.name, role: v.role, repo, path: v.path, icon: v.icon, color: v.color, devPort: v.devPort ? parseInt(v.devPort) : null, agentType: v.agentType, budgetCap: defaultBudget })
     onClose()
   }
 

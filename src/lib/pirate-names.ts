@@ -66,6 +66,7 @@ export interface Workstream {
   complexity: number
   dependencies: string[]
   domain: string
+  territory: string[]
 }
 
 export interface PirateAssignment extends Workstream {

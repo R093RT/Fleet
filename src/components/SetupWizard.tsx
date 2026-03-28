@@ -5,7 +5,7 @@ import { useStore, type AgentConfig } from '@/lib/store'
 import { AgentForm, type AgentFormValues } from './AgentForm'
 import { TreasureMapUpload } from './TreasureMapUpload'
 import { CrewFormation } from './CrewFormation'
-import { CompassRose, AnchorIcon, ShipWheelIcon } from './PirateDecorations'
+import { CompassRose, AnchorIcon } from './PirateDecorations'
 import { PT } from './PirateTerm'
 import { usePirateMode, usePirateClass, usePirateText } from '@/hooks/usePirateMode'
 import { assignPirateIdentities } from '@/lib/pirate-names'
@@ -152,11 +152,33 @@ export function SetupWizard() {
       nameMap.set(member.name, member.pirateName)
     }
 
+    // Auto-match crew members to repos by domain/name keywords
+    const matchRepo = (member: PirateAssignment): string => {
+      if (member.repoPath) return member.repoPath
+      // Try to match domain/name/description against repo folder names
+      const keywords = [member.name, member.domain, member.description].join(' ').toLowerCase()
+      for (const r of repos) {
+        const folder = r.replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? ''
+        // Match common project name patterns
+        if (folder && (keywords.includes(folder) ||
+          (folder.includes('carbon') && keywords.includes('carbon')) ||
+          (folder.includes('survey') && keywords.includes('survey')) ||
+          (folder.includes('core') && keywords.includes('core')) ||
+          (folder.includes('marketing') && keywords.includes('marketing')) ||
+          (folder.includes('rubber') && (keywords.includes('core') || keywords.includes('dds'))) ||
+          (folder.includes('app') && keywords.includes('survey'))
+        )) {
+          return r
+        }
+      }
+      return repos[0] ?? ''
+    }
+
     for (const member of crew) {
       const agentId = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
       agentIds.push(agentId)
 
-      const repoPath = member.repoPath ?? repos[0] ?? ''
+      const repoPath = matchRepo(member)
       const repo = repoPath.replace(/\\/g, '/').split('/').pop() || member.pirateName
 
       // Build task description with dependency info
@@ -167,6 +189,15 @@ export function SetupWizard() {
           .join(', ')
         taskDesc += `\n[DEPENDENCIES: Wait for signals from ${depNames} before starting dependent work]`
       }
+      if (member.territory.length > 0) {
+        taskDesc += `\n[TERRITORY: ${member.territory.join(', ')}]`
+      }
+
+      // Derive per-agent budget: dailyBudgetCap / crew size (if set)
+      const { dailyBudgetCap } = useStore.getState()
+      const defaultAgentBudget = dailyBudgetCap != null && crew.length > 0
+        ? Math.round((dailyBudgetCap / crew.length) * 100) / 100
+        : null
 
       addAgent({
         id: agentId,
@@ -178,6 +209,7 @@ export function SetupWizard() {
         color: member.pirateColor,
         agentType: 'worker',
         task: taskDesc,
+        budgetCap: defaultAgentBudget,
       })
 
       // Create voyage tasks from this crew member's tasks
@@ -235,55 +267,72 @@ export function SetupWizard() {
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full opacity-[0.04] pointer-events-none"
         style={{ background: isPirate ? 'radial-gradient(ellipse, #d4a843, transparent 70%)' : 'radial-gradient(ellipse, #3b82f6, transparent 70%)' }} />
 
-      <div className="w-full max-w-xl px-6 py-12 relative">
+      <div className={`w-full px-6 relative ${step === 'crew' ? 'max-w-[1600px] py-6' : 'max-w-xl py-12'}`}>
 
         {/* Pirate question — first-time only */}
         {step === 'pirate-question' && (
-          <div className="text-center space-y-8 animate-fade-in">
-            <div className="flex items-center justify-center gap-3">
-              <AnchorIcon size={36} className="text-amber" />
-              <h1 className="text-2xl font-semibold tracking-wide text-amber">FLEET</h1>
+          <div className="text-center space-y-10 animate-fade-in">
+            {/* Logo */}
+            <div className="space-y-3">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"
+                style={{ background: 'linear-gradient(135deg, #1a2332, #d4a843)' }}>
+                <AnchorIcon size={32} className="text-white/90" />
+              </div>
+              <h1 className="text-4xl font-bold tracking-widest text-amber">FLEET</h1>
+              <p className="text-sm text-white/60">Multi-agent command center for Claude Code</p>
             </div>
 
-            <p className="text-sm opacity-60">Before we begin, choose your style:</p>
+            <div className="space-y-2">
+              <p className="text-base text-white/80">How would you like your dashboard?</p>
+            </div>
 
-            <div className="grid grid-cols-2 gap-4 max-w-lg mx-auto">
+            <div className="grid grid-cols-2 gap-5 max-w-xl mx-auto">
               {/* Pirate option */}
               <button
                 onClick={() => handlePirateChoice(true)}
-                className="group p-5 rounded-xl border border-amber/20 bg-amber/[0.03] hover:bg-amber/[0.08] hover:border-amber/40 transition-all text-left space-y-3"
+                className="group relative p-6 rounded-2xl border border-amber/20 bg-amber/[0.03] hover:bg-amber/[0.08] hover:border-amber/50 hover:scale-[1.02] transition-all duration-200 text-left space-y-4 overflow-hidden"
               >
-                <div className="text-3xl">🏴‍☠️</div>
-                <div>
-                  <div className="font-pirate text-amber text-base">Pirate Mode</div>
-                  <div className="text-xs opacity-40 mt-1 leading-relaxed">
-                    Nautical theme, pirate terminology, and swashbuckling flair
+                {/* Glow effect */}
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+                  style={{ background: 'radial-gradient(circle at 50% 80%, rgba(212,168,67,0.08), transparent 70%)' }} />
+                <div className="text-4xl relative">🏴‍☠️</div>
+                <div className="relative">
+                  <div className="font-pirate text-amber text-lg">Pirate Mode</div>
+                  <div className="text-sm text-white/50 mt-1.5 leading-relaxed">
+                    Nautical theme with swashbuckling terminology and pirate flair
                   </div>
                 </div>
-                <div className="text-xs opacity-20 border border-white/5 rounded-md px-2 py-1.5 font-mono">
-                  &ldquo;Ahoy Captain! Yer crew be at sea...&rdquo;
+                <div className="relative text-xs text-white/40 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 font-mono italic leading-relaxed">
+                  &ldquo;Oh Captain, my Captain! Yer crew be at sea...&rdquo;
                 </div>
               </button>
 
               {/* Professional option */}
               <button
                 onClick={() => handlePirateChoice(false)}
-                className="group p-5 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/20 transition-all text-left space-y-3"
+                className="group relative p-6 rounded-2xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-blue-500/30 hover:scale-[1.02] transition-all duration-200 text-left space-y-4 overflow-hidden"
               >
-                <div className="text-3xl">💼</div>
-                <div>
-                  <div className="font-medium text-white/80 text-base">Professional</div>
-                  <div className="text-xs opacity-40 mt-1 leading-relaxed">
+                {/* Glow effect */}
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+                  style={{ background: 'radial-gradient(circle at 50% 80%, rgba(59,130,246,0.06), transparent 70%)' }} />
+                <div className="text-4xl relative">⚡</div>
+                <div className="relative">
+                  <div className="font-medium text-white/80 text-lg">Professional</div>
+                  <div className="text-sm text-white/50 mt-1.5 leading-relaxed">
                     Clean interface with standard developer terminology
                   </div>
                 </div>
-                <div className="text-xs opacity-20 border border-white/5 rounded-md px-2 py-1.5 font-mono">
+                <div className="relative text-xs text-white/40 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 font-mono italic leading-relaxed">
                   &ldquo;Welcome! Your agents are running...&rdquo;
                 </div>
               </button>
             </div>
 
-            <p className="text-xs opacity-20">You can switch anytime from the header</p>
+            <p className="text-xs text-white/40 flex items-center justify-center gap-1.5">
+              <span className="inline-block w-4 h-px bg-white/10" />
+              You can switch anytime from the header toggle
+              <span className="inline-block w-4 h-px bg-white/10" />
+            </p>
           </div>
         )}
 
@@ -400,7 +449,7 @@ export function SetupWizard() {
         {/* Charting / Loading */}
         {step === 'charting' && (
           <div className="text-center space-y-6 animate-fade-in">
-            <ShipWheelIcon size={48} className="mx-auto text-amber animate-spin-slow" />
+            <CompassRose size={64} className="mx-auto text-amber animate-spin-slow" />
             <h2 className={`${pirateFont} text-xl text-amber`}>{chartingMessages[chartingMsg]}</h2>
             <p className="text-xs text-white/30">{t('Analyzing yer treasure map and forming the optimal crew...', 'Analyzing your roadmap and forming the optimal team...')}</p>
             <div className="w-48 h-1 mx-auto bg-white/5 rounded-full overflow-hidden">
