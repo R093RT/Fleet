@@ -32,14 +32,32 @@ export function useReactions() {
         setReactions(data.reactions ?? [])
         if (data.error) setError(data.error)
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        console.warn('Failed to load reactions config:', e instanceof Error ? e.message : String(e))
+        setError('Failed to load reactions config')
+      })
   }, [])
+
+  // Global rate limit: max 5 reaction fires per 10 seconds across all reactions
+  const globalFireTimesRef = useRef<number[]>([])
+  const GLOBAL_MAX_FIRES = 5
+  const GLOBAL_WINDOW_MS = 10_000
 
   const fireAction = useCallback((reaction: ReactionConfig, filename?: string) => {
     const now = Date.now()
+
+    // Per-reaction cooldown
     const cooldownMs = (reaction.cooldown ?? 60) * 1000
     const lastFiredAt = lastFiredRef.current[reaction.name] ?? 0
     if (now - lastFiredAt < cooldownMs) return
+
+    // Global rate limit
+    globalFireTimesRef.current = globalFireTimesRef.current.filter(t => now - t < GLOBAL_WINDOW_MS)
+    if (globalFireTimesRef.current.length >= GLOBAL_MAX_FIRES) {
+      console.warn(`Reaction rate limit hit (${GLOBAL_MAX_FIRES}/${GLOBAL_WINDOW_MS}ms), skipping: ${reaction.name}`)
+      return
+    }
+    globalFireTimesRef.current.push(now)
 
     lastFiredRef.current[reaction.name] = now
     setLastFired(prev => ({ ...prev, [reaction.name]: now }))

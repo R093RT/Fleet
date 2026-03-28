@@ -24,7 +24,7 @@ export function AgentCard({ agent }: { agent: Agent }) {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agentId: agent.id }),
-    }).catch(() => {})
+    }).catch((e: unknown) => console.warn('Kill request failed:', e instanceof Error ? e.message : String(e)))
     updateAgent(agent.id, { status: 'idle', isStreaming: false, lastUpdate: Date.now() })
   }
 
@@ -37,20 +37,20 @@ export function AgentCard({ agent }: { agent: Agent }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ worktreePath: agent.worktreePath, repoPath: agent.path }),
         })
-      } catch {}
+      } catch (e: unknown) { console.warn('Worktree cleanup failed:', e instanceof Error ? e.message : String(e)) }
     }
     // Clean up session file on disk
     fetch('/api/sessions', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agentId: agent.id }),
-    }).catch(() => {})
+    }).catch((e: unknown) => console.warn('Session cleanup failed:', e instanceof Error ? e.message : String(e)))
     // Clean up screenshot files
     fetch('/api/screenshot', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agentId: agent.id }),
-    }).catch(() => {})
+    }).catch((e: unknown) => console.warn('Screenshot cleanup failed:', e instanceof Error ? e.message : String(e)))
     removeAgent(agent.id)
   }
 
@@ -80,12 +80,19 @@ export function AgentCard({ agent }: { agent: Agent }) {
             {agent.worktreeBranch && <span className="text-xs px-1 py-0.5 rounded bg-purple-500/10 text-purple-400/60 font-mono">{agent.worktreeBranch}</span>}
             {agent.agentType === 'quartermaster' && <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400/80">⚓ QM</span>}
             {agent.budgetCap != null && agent.sessionCost >= agent.budgetCap && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium">⚠ over budget</span>
+              <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium animate-pulse">🚫 stopped</span>
+            )}
+            {agent.budgetCap != null && agent.sessionCost > 0 && agent.sessionCost < agent.budgetCap && agent.sessionCost >= agent.budgetCap * 0.8 && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400/80 font-mono tabular-nums">
+                ${agent.sessionCost.toFixed(2)}/${agent.budgetCap.toFixed(2)}
+              </span>
             )}
           </div>
           <div className="flex items-center gap-3 mt-0.5">
             <span className="text-xs opacity-35 truncate">{agent.task || 'No active task'}</span>
             <GitBadge git={agent.git} />
+            {!agent.path && <span className="text-xs text-red-400/60">no repo</span>}
+            {agent.path && !agent.git && <span className="text-xs font-mono opacity-15 truncate max-w-[120px]" title={agent.path}>{agent.path.replace(/\\/g, '/').split('/').pop()}</span>}
             {agent.lastUpdate && <span className="text-xs opacity-20">{formatTime(agent.lastUpdate)}</span>}
             {agent.sessionCost > 0 && (
               <span className="text-xs tabular-nums font-mono text-white/25 flex-shrink-0">${agent.sessionCost.toFixed(4)}</span>
@@ -250,6 +257,12 @@ export function AgentCard({ agent }: { agent: Agent }) {
                               <span className="text-xs opacity-40">Inject <PT k="Treasure Map" className="border-0" /></span>
                             </label>
                           )}
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input type="checkbox" checked={agent.injectVault}
+                              onChange={e => updateAgent(agent.id, { injectVault: e.target.checked })}
+                              className="accent-emerald-500" />
+                            <span className="text-xs opacity-40">Inject Vault</span>
+                          </label>
                         </div>
 
                         {/* Notes */}

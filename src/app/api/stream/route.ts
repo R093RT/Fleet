@@ -111,10 +111,14 @@ export async function POST(req: NextRequest) {
       // Register in the process registry so /api/kill can terminate it
       liveProcesses.set(agentId, proc)
 
-      // For first-run (no session), deliver prompt via stdin
-      if (!isResume) {
-        proc.stdin?.write(prompt)
-        proc.stdin?.end()
+      // For first-run (no session), deliver prompt via stdin with backpressure
+      if (!isResume && proc.stdin) {
+        const ok = proc.stdin.write(prompt)
+        if (ok) {
+          proc.stdin.end()
+        } else {
+          proc.stdin.once('drain', () => proc.stdin?.end())
+        }
       }
 
       let buffer = ''

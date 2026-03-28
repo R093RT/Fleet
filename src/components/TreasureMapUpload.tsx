@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { PT } from './PirateTerm'
 import { usePirateClass, usePirateText } from '@/hooks/usePirateMode'
 
@@ -18,8 +18,30 @@ export function TreasureMapUpload({ onSubmit, loading }: TreasureMapUploadProps)
   const [content, setContent] = useState('')
   const [fileName, setFileName] = useState('')
   const [filePath, setFilePath] = useState('')
-  const [repoPath, setRepoPath] = useState('')
+  const [repoPaths, setRepoPaths] = useState<string[]>([''])
   const [dragOver, setDragOver] = useState(false)
+  const [autoDetected, setAutoDetected] = useState(false)
+
+  // Auto-detect repos from vault's Repository_Map
+  useEffect(() => {
+    fetch('/api/vault?note=Repository_Map')
+      .then(r => r.json())
+      .then((data: { exists?: boolean; content?: string }) => {
+        if (!data.exists || !data.content) return
+        // Extract local paths from the vault's repo map
+        const pathRegex = /\*\*(?:Local )?Path\*\*\s*\|\s*`([^`]+)`/gi
+        const found: string[] = []
+        let match: RegExpExecArray | null
+        while ((match = pathRegex.exec(data.content)) !== null) {
+          if (match[1]) found.push(match[1])
+        }
+        if (found.length > 0) {
+          setRepoPaths(found)
+          setAutoDetected(true)
+        }
+      })
+      .catch((e: unknown) => console.warn('Vault auto-detect failed:', e instanceof Error ? e.message : String(e)))
+  }, [])
   const fileRef = useRef<HTMLInputElement>(null)
 
   const charCount = content.length
@@ -43,7 +65,7 @@ export function TreasureMapUpload({ onSubmit, loading }: TreasureMapUploadProps)
 
   const handleSubmit = () => {
     if (!content.trim()) return
-    const repos = repoPath.trim() ? [repoPath.trim()] : []
+    const repos = repoPaths.map(r => r.trim()).filter(Boolean)
     onSubmit(content, repos)
   }
 
@@ -145,18 +167,32 @@ export function TreasureMapUpload({ onSubmit, loading }: TreasureMapUploadProps)
         </div>
       )}
 
-      {/* Repo path input */}
+      {/* Repo paths input */}
       <div className="space-y-1.5">
         <label className="text-xs text-white/40 flex items-center gap-1.5">
-          {t('Where does yer crew work?', 'Where does your project live?')}
-          <span className="text-white/15">(auto-detected from map if mentioned)</span>
+          {t('Where does yer crew work?', 'Where do your projects live?')}
+          {autoDetected && <span className="text-emerald-400/50">(auto-detected from vault)</span>}
         </label>
-        <input
-          value={repoPath}
-          onChange={e => setRepoPath(e.target.value)}
-          placeholder="Absolute path to the project repository (optional)"
-          className="w-full input-field font-mono text-sm"
-        />
+        <div className="space-y-1">
+          {repoPaths.map((rp, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <input
+                value={rp}
+                onChange={e => setRepoPaths(prev => prev.map((p, j) => j === i ? e.target.value : p))}
+                placeholder="C:\Users\you\project-repo"
+                className="flex-1 input-field font-mono text-sm"
+              />
+              {repoPaths.length > 1 && (
+                <button onClick={() => setRepoPaths(prev => prev.filter((_, j) => j !== i))}
+                  className="text-xs text-white/15 hover:text-red-400 transition-colors px-1">✕</button>
+              )}
+            </div>
+          ))}
+          <button onClick={() => setRepoPaths(prev => [...prev, ''])}
+            className="text-xs text-white/20 hover:text-white/40 transition-colors">
+            + add repo
+          </button>
+        </div>
       </div>
 
       {/* Submit */}

@@ -10,6 +10,7 @@ export function DiffViewer({ agent }: { agent: Agent }) {
   const [diff, setDiff] = useState('')
   const [summary, setSummary] = useState('')
   const [files, setFiles] = useState<string[]>([])
+  const [filesTruncated, setFilesTruncated] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -28,6 +29,7 @@ export function DiffViewer({ agent }: { agent: Agent }) {
       setDiff(data.diff || '')
       setSummary(data.summary || '')
       setFiles(data.files || [])
+      setFilesTruncated(!!data.filesTruncated)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -77,7 +79,8 @@ export function DiffViewer({ agent }: { agent: Agent }) {
             {/* Changed files list */}
             {files.length > 0 && (
               <div className="text-xs opacity-30 pb-2">
-                {files.length} file{files.length !== 1 ? 's' : ''} changed
+                {files.length}{filesTruncated ? '+' : ''} file{files.length !== 1 ? 's' : ''} changed
+                {filesTruncated && <span className="text-amber-400/60 ml-1">(list truncated)</span>}
               </div>
             )}
 

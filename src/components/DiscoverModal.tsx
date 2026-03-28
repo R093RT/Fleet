@@ -13,14 +13,19 @@ export function DiscoverModal({ onClose }: { onClose: () => void }) {
   const { agents, updateAgent, addAgent } = useStore()
   const [processes, setProcesses] = useState<DiscoveredProcess[]>([])
   const [loading, setLoading] = useState(true)
+  const [scanError, setScanError] = useState<string | null>(null)
 
   const scan = useCallback(async () => {
     setLoading(true)
+    setScanError(null)
     try {
       const res = await fetch('/api/discover')
+      if (!res.ok) { setScanError(`Scan failed (${res.status})`); setProcesses([]); setLoading(false); return }
       const data = await res.json()
       setProcesses(data.processes ?? [])
-    } catch {
+    } catch (e: unknown) {
+      console.warn('Discover scan failed:', e instanceof Error ? e.message : String(e))
+      setScanError('Failed to scan for processes')
       setProcesses([])
     }
     setLoading(false)
@@ -86,7 +91,14 @@ export function DiscoverModal({ onClose }: { onClose: () => void }) {
             <div className="text-center py-12 text-xs opacity-30 animate-pulse">{t('Scouting the seas for claude processes...', 'Scanning for claude processes...')}</div>
           )}
 
-          {!loading && processes.length === 0 && (
+          {!loading && scanError && (
+            <div className="text-center py-4 text-xs text-red-400/70 bg-red-500/5 rounded-lg border border-red-500/10 mx-1">
+              {scanError}
+              <button onClick={scan} className="ml-2 underline opacity-70 hover:opacity-100">Retry</button>
+            </div>
+          )}
+
+          {!loading && !scanError && processes.length === 0 && (
             <div className="text-center py-12 text-xs opacity-20">
               {t('No rogue pirates found on the seas.', 'No external claude processes found.')}
               <div className="mt-1 opacity-70">{t('Start a claude agent outside Fleet and scout again.', 'Start a claude agent outside Fleet and scan again.')}</div>

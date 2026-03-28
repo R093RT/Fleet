@@ -52,16 +52,23 @@ function capturePlaywright(url: string, filepath: string): boolean {
 }
 
 type DiffResult =
-  | { ok: true; diffPixels: number; totalPixels: number }
-  | { ok: false; dimensionMismatch: true; beforeSize: string; afterSize: string }
+  | { ok: true; reason?: never; diffPixels: number; totalPixels: number }
+  | { ok: false; reason: 'dimension-mismatch'; beforeSize: string; afterSize: string }
+  | { ok: false; reason: 'too-large'; size: string }
+
+const MAX_DIFF_DIMENSION = 4096 // Cap at 4096×4096 to prevent OOM during pixelmatch
 
 function computeDiff(beforePath: string, afterPath: string, diffPath: string): DiffResult {
   const img1 = PNG.sync.read(readFileSync(beforePath))
   const img2 = PNG.sync.read(readFileSync(afterPath))
+  if (img1.width > MAX_DIFF_DIMENSION || img1.height > MAX_DIFF_DIMENSION ||
+      img2.width > MAX_DIFF_DIMENSION || img2.height > MAX_DIFF_DIMENSION) {
+    return { ok: false, reason: 'too-large', size: `${Math.max(img1.width, img2.width)}×${Math.max(img1.height, img2.height)}` }
+  }
   if (img1.width !== img2.width || img1.height !== img2.height) {
     return {
       ok: false,
-      dimensionMismatch: true,
+      reason: 'dimension-mismatch',
       beforeSize: `${img1.width}×${img1.height}`,
       afterSize: `${img2.width}×${img2.height}`,
     }
@@ -114,6 +121,12 @@ export async function POST(req: NextRequest) {
       const result = computeDiff(beforeFilePath, filepath, diffFilePath)
 
       if (!result.ok) {
+        if (result.reason === 'too-large') {
+          return NextResponse.json({
+            success: true, afterPath: webPath, diffPath: null,
+            diffError: `Image too large for diff (${result.size}, max ${MAX_DIFF_DIMENSION}×${MAX_DIFF_DIMENSION})`,
+          })
+        }
         return NextResponse.json({
           success: true,
           afterPath: webPath,
