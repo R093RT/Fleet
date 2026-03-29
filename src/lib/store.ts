@@ -63,6 +63,12 @@ export interface Agent {
   // Budget (persisted)
   budgetCap: number | null
 
+  // Model selection (persisted)
+  model: 'default' | 'haiku' | 'sonnet' | 'opus'
+
+  // Notepad injection (persisted)
+  injectNotepad: boolean
+
   // Live data (not persisted)
   pid: number | null
   iterationRound: number
@@ -137,6 +143,8 @@ const makeAgent = (config: Partial<Agent>): Agent => ({
   injectRoadmap: config.injectRoadmap ?? false,
   injectVault: config.injectVault ?? false,
   budgetCap: config.budgetCap ?? null,
+  model: config.model ?? 'default',
+  injectNotepad: config.injectNotepad ?? false,
   pid: null,
   iterationRound: 0,
   iterationScore: null,

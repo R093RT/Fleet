@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import { z } from 'zod'
-import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
+import { DEFAULT_ALLOWED_TOOLS, modelCliArgs } from '@/lib/tools'
 import { SafeId, SafeSessionId, SafeTool, AbsolutePath } from '@/lib/validate'
 
 const SendMessageSchema = z.object({
@@ -10,6 +11,7 @@ const SendMessageSchema = z.object({
   prompt: z.string().min(1).max(500_000),
   allowedTools: z.array(SafeTool).optional(),
   agentId: SafeId.optional(),
+  model: z.enum(['default', 'haiku', 'sonnet', 'opus']).optional(),
 })
 
 function runClaude(
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
-  const { repoPath, sessionId, prompt, allowedTools } = parsed.data
+  const { repoPath, sessionId, prompt, allowedTools, model } = parsed.data
 
   const tools = allowedTools ?? DEFAULT_ALLOWED_TOOLS
 
@@ -66,6 +68,7 @@ export async function POST(req: NextRequest) {
     '--session-id', sessionId,
     '--resume',
     '--output-format', 'json',
+    ...modelCliArgs(model),
     ...tools.flatMap(t => ['--allowedTools', t]),
   ]
 

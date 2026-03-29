@@ -74,6 +74,30 @@ describe('addAgent / makeAgent defaults', () => {
     expect(agent?.agentType).toBe('quartermaster')
   })
 
+  it('initialises model to default', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test' })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.model).toBe('default')
+  })
+
+  it('respects model when provided', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test', model: 'opus' })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.model).toBe('opus')
+  })
+
+  it('initialises injectNotepad to false', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test' })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.injectNotepad).toBe(false)
+  })
+
+  it('respects injectNotepad when provided', () => {
+    useStore.getState().addAgent({ name: 'Test', path: '/tmp/test', injectNotepad: true })
+    const agent = useStore.getState().agents.at(-1)
+    expect(agent?.injectNotepad).toBe(true)
+  })
+
   it('initialises messages to empty array', () => {
     useStore.getState().addAgent({ name: 'Test', path: '/tmp/test' })
     const agent = useStore.getState().agents.at(-1)

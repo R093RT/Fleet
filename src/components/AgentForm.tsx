@@ -19,6 +19,7 @@ export interface AgentFormValues {
   color: string
   devPort: string
   agentType: 'worker' | 'quartermaster'
+  model: 'default' | 'haiku' | 'sonnet' | 'opus'
 }
 
 interface AgentFormProps {
@@ -36,6 +37,7 @@ export function AgentForm({ initial, submitLabel, onSubmit, onCancel }: AgentFor
   const [color, setColor] = useState(initial?.color || '#2563eb')
   const [devPort, setDevPort] = useState(initial?.devPort || '')
   const [agentType, setAgentType] = useState<'worker' | 'quartermaster'>(initial?.agentType || 'worker')
+  const [model, setModel] = useState<AgentFormValues['model']>(initial?.model || 'default')
   const [touched, setTouched] = useState<Set<string>>(new Set())
 
   const touch = (field: string) => setTouched(prev => new Set(prev).add(field))
@@ -44,7 +46,7 @@ export function AgentForm({ initial, submitLabel, onSubmit, onCancel }: AgentFor
   const handleSubmit = () => {
     touch('name')
     touch('path')
-    if (isValid) onSubmit({ name, role, path, icon, color, devPort, agentType })
+    if (isValid) onSubmit({ name, role, path, icon, color, devPort, agentType, model })
   }
 
   return (
@@ -87,6 +89,16 @@ export function AgentForm({ initial, submitLabel, onSubmit, onCancel }: AgentFor
               { value: 'worker', label: '⚙️ Worker' },
               { value: 'quartermaster', label: '⚓ Quartermaster' },
             ]} className="w-40" />
+        </div>
+        <div>
+          <label className="field-label">Model</label>
+          <Select value={model} onChange={v => setModel(v as AgentFormValues['model'])}
+            options={[
+              { value: 'default', label: '🤖 Default' },
+              { value: 'haiku', label: '⚡ Haiku' },
+              { value: 'sonnet', label: '🎵 Sonnet' },
+              { value: 'opus', label: '🎼 Opus' },
+            ]} className="w-36" />
         </div>
       </div>
       <div>

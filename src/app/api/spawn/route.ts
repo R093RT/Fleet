@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import { z } from 'zod'
-import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
+import { DEFAULT_ALLOWED_TOOLS, modelCliArgs } from '@/lib/tools'
 import { SafeId, SafeTool, AbsolutePath } from '@/lib/validate'
 import { liveProcesses } from '@/lib/process-registry'
 
@@ -10,6 +11,7 @@ const SpawnRequestSchema = z.object({
   repoPath: AbsolutePath,
   prompt: z.string().min(1).max(500_000),
   allowedTools: z.array(SafeTool).optional(),
+  model: z.enum(['default', 'haiku', 'sonnet', 'opus']).optional(),
 })
 
 // Session IDs tracked separately (liveProcesses only stores ChildProcess)
@@ -20,7 +22,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
-  const { agentId, repoPath, prompt, allowedTools } = parsed.data
+  const { agentId, repoPath, prompt, allowedTools, model } = parsed.data
 
   // Kill existing process for this agent if any (checks shared registry)
   const existing = liveProcesses.get(agentId)
@@ -38,6 +40,7 @@ export async function POST(req: NextRequest) {
       '--output-format', 'stream-json',
       '--max-turns', '50',
       ...tools.flatMap(t => ['--allowedTools', t]),
+      ...modelCliArgs(model),
     ]
 
     const proc = spawn('claude', args, {

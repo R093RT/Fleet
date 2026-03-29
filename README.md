@@ -140,15 +140,18 @@ localhost:4000
 ├── /api/stream          SSE: spawns claude -p, streams JSON output
 ├── /api/git-status      Polls branch/uncommitted/unpushed per repo path
 ├── /api/diff            git diff in 4 modes (staged/unstaged/last-commit/unpushed)
+├── /api/merge           Dry-run or merge worktree branches back to main
 ├── /api/fleet-config    Reads fleet.yaml (agents + reactions)
 ├── /api/reactions       Reads reactions from fleet.yaml
 ├── /api/signals         Agent-to-agent coordination (handoffs, blockers, requests)
 ├── /api/roadmap         Reads/writes roadmap markdown file from disk
+├── /api/vault           Create/search notes in Obsidian vault
 ├── /api/watch           SSE file watcher per repo (used by reactions engine)
 ├── /api/screenshot      Playwright screenshot for UI diff
 ├── /api/worktree        Create/delete per-agent git worktrees
 ├── /api/sessions        Persist/recover session stats (cost, turns, tokens)
 ├── /api/local-ip        Returns LAN IP for QR mobile link
+├── /api/discover        Scan for running claude processes to adopt
 └── /api/kill            Kills a running agent process
 ```
 
@@ -185,7 +188,11 @@ All state is local — localStorage (agent config) + filesystem (signals, sessio
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+Shift+R` | Open roadmap |
-| `Escape` | Close modals |
+| `Ctrl+Shift+Q` | Toggle Quartermaster chat |
+| `Ctrl+Shift+C` | Toggle cost dashboard |
+| `Arrow Up/Down` | Navigate agent cards |
+| `Enter` | Expand/collapse focused agent |
+| `Escape` | Close modals, clear focus |
 
 ---
 
@@ -197,6 +204,23 @@ ROADMAP_PATH=         # optional — absolute path to roadmap .md file
 SIGNALS_DIR=          # optional — defaults to .fleet/signals/
 REACTIONS_CONFIG=     # optional — defaults to fleet.yaml at Fleet root
 ```
+
+---
+
+## Testing
+
+```bash
+npm test                    # run all tests
+npm run test:coverage       # run with coverage report
+npx vitest run src/lib/     # run only lib unit tests
+npx vitest run src/app/api/ # run only API route tests
+```
+
+Test categories:
+
+- **Unit tests** — pure functions: store operations, utils, stream-format, signal pruning, pirate names
+- **API route tests** — signals CRUD (GET/POST/PATCH), diff modes + truncation, mocked fs/child_process
+- **Integration** — Zustand store add/remove/update, session persistence, daily spend tracking
 
 ---
 

@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import path from 'path'
 import { z } from 'zod'
-import { createMutex } from '@/lib/mutex'
+import { atomicWriteFileSync, safeReadJson } from '@/lib/atomic-write'
+import { withFileLock } from '@/lib/file-lock'
+import { pruneSignals } from '@/lib/signals'
+import type { Signal } from '@/lib/signals'
 
 const SignalTypeSchema = z.enum(['handoff', 'blocker', 'update', 'request', 'done'])
 
@@ -19,26 +22,6 @@ const ResolveSignalSchema = z.object({ signalId: z.string().min(1).max(128) })
 // Override with SIGNALS_DIR env var to share signals across machines or store elsewhere.
 const SIGNALS_DIR = process.env.SIGNALS_DIR || path.join(process.cwd(), '.fleet', 'signals')
 
-interface Signal {
-  id: string
-  from: string       // agent name
-  to: string         // agent name or '*' for broadcast
-  type: 'handoff' | 'blocker' | 'update' | 'request' | 'done'
-  message: string
-  timestamp: number
-  resolved: boolean
-}
-
-const MAX_SIGNALS = 500
-const RESOLVED_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
-
-function pruneSignals(signals: Signal[]): Signal[] {
-  const now = Date.now()
-  let pruned = signals.filter(s => !s.resolved || (now - s.timestamp) < RESOLVED_MAX_AGE_MS)
-  if (pruned.length > MAX_SIGNALS) pruned = pruned.slice(-MAX_SIGNALS)
-  return pruned
-}
-
 function ensureDir() {
   if (!existsSync(SIGNALS_DIR)) {
     mkdirSync(SIGNALS_DIR, { recursive: true })
@@ -51,23 +34,16 @@ function getSignalsFile() {
 
 function readSignals(): Signal[] {
   ensureDir()
-  const file = getSignalsFile()
-  if (!existsSync(file)) return []
-  try {
-    return JSON.parse(readFileSync(file, 'utf-8'))
-  } catch (e) {
-    console.warn('Failed to parse signals file:', e instanceof Error ? e.message : String(e))
-    return []
-  }
+  return safeReadJson<Signal[]>(getSignalsFile()) ?? []
 }
 
 function writeSignals(signals: Signal[]) {
   ensureDir()
   const pruned = pruneSignals(signals)
-  writeFileSync(getSignalsFile(), JSON.stringify(pruned, null, 2), 'utf-8')
+  atomicWriteFileSync(getSignalsFile(), JSON.stringify(pruned, null, 2))
 }
 
-const signalsMutex = createMutex()
+const LOCK_PATH = path.join(SIGNALS_DIR, 'signals.lock')
 
 // GET: read all signals, optionally filter by agent
 export async function GET(req: NextRequest) {
@@ -94,10 +70,9 @@ export async function POST(req: NextRequest) {
   }
   const { from, to, type, message } = parsed.data
 
-  const release = await signalsMutex.acquire()
-  try {
+  const signal = await withFileLock(LOCK_PATH, () => {
     const signals = readSignals()
-    const signal: Signal = {
+    const sig: Signal = {
       id: `sig-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       from,
       to,
@@ -106,12 +81,11 @@ export async function POST(req: NextRequest) {
       timestamp: Date.now(),
       resolved: false,
     }
-    signals.push(signal)
+    signals.push(sig)
     writeSignals(signals)
-    return NextResponse.json({ success: true, signal })
-  } finally {
-    release()
-  }
+    return sig
+  })
+  return NextResponse.json({ success: true, signal })
 }
 
 // PATCH: resolve a signal
@@ -122,18 +96,18 @@ export async function PATCH(req: NextRequest) {
   }
   const { signalId } = parsed.data
 
-  const release = await signalsMutex.acquire()
-  try {
+  const notFound = await withFileLock(LOCK_PATH, () => {
     const signals = readSignals()
     const idx = signals.findIndex(s => s.id === signalId)
     const found = idx !== -1 ? signals[idx] : undefined
-    if (!found) {
-      return NextResponse.json({ error: 'Signal not found' }, { status: 404 })
-    }
+    if (!found) return true
     found.resolved = true
     writeSignals(signals)
-    return NextResponse.json({ success: true })
-  } finally {
-    release()
+    return false
+  })
+
+  if (notFound) {
+    return NextResponse.json({ error: 'Signal not found' }, { status: 404 })
   }
+  return NextResponse.json({ success: true })
 }
