@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useStore } from '@/lib/store'
 import { AgentCard } from '@/components/AgentCard'
 import { AddAgentModal } from '@/components/AddAgentModal'
@@ -20,6 +20,9 @@ import { VoyageProgress } from '@/components/VoyageProgress'
 import { usePirateMode, usePirateClass, usePirateText } from '@/hooks/usePirateMode'
 import { QmChatPanel } from '@/components/QmChatPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { ToastProvider } from '@/components/Toast'
+import { CostDashboardModal } from '@/components/CostDashboardModal'
+import { fetchWithRetry } from '@/lib/fetch-retry'
 
 export default function Dashboard() {
   const { agents, filter, setupComplete, setFilter, dailySpend, dailyBudgetCap, setDailyBudgetCap } = useStore()
@@ -31,11 +34,29 @@ export default function Dashboard() {
   const [showDiscover, setShowDiscover] = useState(false)
   const [showQr, setShowQr] = useState(false)
   const [showQmChat, setShowQmChat] = useState(false)
+  const [showCostDashboard, setShowCostDashboard] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [focusedIndex, setFocusedIndex] = useState(-1)
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
   useEffect(() => { setMounted(true) }, [])
   useSessionRecovery()
   useGitPolling()
+
+  // On mount, call health endpoint to reap orphan processes from server restarts
+  useEffect(() => {
+    fetchWithRetry('/api/health')
+      .then(r => r.json())
+      .then((data: { reaped: string[] }) => {
+        if (data.reaped?.length > 0) {
+          const { updateAgent } = useStore.getState()
+          for (const id of data.reaped) {
+            updateAgent(id, { isStreaming: false, status: 'idle', pid: null })
+          }
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const handleEscape = useCallback(() => {
     setShowRoadmap(false)
@@ -43,10 +64,47 @@ export default function Dashboard() {
     setShowDiscover(false)
     setShowQr(false)
     setShowQmChat(false)
+    setShowCostDashboard(false)
+    setFocusedIndex(-1)
   }, [])
   const handleRoadmap = useCallback(() => setShowRoadmap(true), [])
   const handleQmChat = useCallback(() => setShowQmChat(v => !v), [])
-  useKeyboardShortcuts({ onEscape: handleEscape, onRoadmap: handleRoadmap, onQmChat: handleQmChat })
+  const handleCostDashboard = useCallback(() => setShowCostDashboard(v => !v), [])
+  const handleArrowDown = useCallback(() => {
+    setFocusedIndex(i => {
+      const max = useStore.getState().agents.length - 1
+      return Math.min(i + 1, max)
+    })
+  }, [])
+  const handleArrowUp = useCallback(() => {
+    setFocusedIndex(i => Math.max(i - 1, 0))
+  }, [])
+  const handleEnter = useCallback(() => {
+    setFocusedIndex(i => {
+      const state = useStore.getState()
+      const filtered = state.filter === 'all' ? state.agents
+        : state.filter === 'attention' ? state.agents.filter(a => a.status === 'needs-input' || (a.plan && a.planApproved === null))
+        : state.agents.filter(a => a.status === state.filter)
+      const agent = filtered[i]
+      if (agent) {
+        state.setExpanded(state.expandedId === agent.id ? null : agent.id)
+      }
+      return i
+    })
+  }, [])
+  useKeyboardShortcuts({ onEscape: handleEscape, onRoadmap: handleRoadmap, onQmChat: handleQmChat, onArrowDown: handleArrowDown, onArrowUp: handleArrowUp, onEnter: handleEnter, onCostDashboard: handleCostDashboard })
+
+  // Scroll focused card into view
+  useEffect(() => {
+    if (focusedIndex < 0) return
+    const filt = filter === 'all' ? agents
+      : filter === 'attention' ? agents.filter(a => a.status === 'needs-input' || (a.plan && a.planApproved === null))
+      : agents.filter(a => a.status === filter)
+    const agent = filt[focusedIndex]
+    if (agent) {
+      cardRefs.current.get(agent.id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [focusedIndex, agents, filter])
 
   if (!mounted) return null
   if (!setupComplete) return <SetupWizard />
@@ -123,27 +181,32 @@ export default function Dashboard() {
 
       {/* Agent list */}
       <div className="max-w-6xl mx-auto px-5 py-4 space-y-3">
-        {filtered.map(a => (
-          <ErrorBoundary key={a.id} label={a.name} compact>
-            <AgentCard agent={a} />
-          </ErrorBoundary>
+        {filtered.map((a, i) => (
+          <div key={a.id} ref={el => { if (el) cardRefs.current.set(a.id, el); else cardRefs.current.delete(a.id) }}>
+            <ErrorBoundary label={a.name} compact>
+              <AgentCard agent={a} focused={focusedIndex === i} />
+            </ErrorBoundary>
+          </div>
         ))}
         {filtered.length === 0 && (
-          <div className="text-center py-20 opacity-15 text-sm">
-            {filter === 'all'
-              ? <span className={`${pirateFont} text-lg`}>{t('No crew yet.', 'No agents yet.')} <button onClick={() => setShowAdd(true)} className="underline">{t('Recruit one.', 'Add one.')}</button></span>
-              : <span className={`${pirateFont} text-lg`}>{t('No pirates match this filter.', 'No agents match this filter.')}</span>}
+          <div className="text-center py-20 text-sm">
+            <CompassRose size={120} className="text-amber mx-auto mb-4 opacity-[0.08]" />
+            <div className="opacity-15">
+              {filter === 'all'
+                ? <span className={`${pirateFont} text-lg`}>{t('No crew yet.', 'No agents yet.')} <button onClick={() => setShowAdd(true)} className="underline">{t('Recruit one.', 'Add one.')}</button></span>
+                : <span className={`${pirateFont} text-lg`}>{t('No pirates match this filter.', 'No agents match this filter.')}</span>}
+            </div>
           </div>
         )}
       </div>
 
       {/* Footer */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-white/[0.06] bg-surface/90 backdrop-blur-sm">
-        <div className="max-w-6xl mx-auto px-5 py-2 flex items-center justify-between text-xs">
+        <div className="max-w-6xl mx-auto px-5 py-2 flex items-center justify-between flex-wrap gap-y-1 text-xs">
           <div className="flex items-center gap-4 text-white/30">
             <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />{agents.filter(a => a.status === 'running').length} <PT k="At Sea" className="border-0" /></span>
             <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />{agents.filter(a => a.status === 'needs-input').length} <PT k="Awaiting Orders" className="border-0" /></span>
-            <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-white/20 inline-block" />{agents.filter(a => a.status === 'idle').length} <PT k="Anchored" className="border-0" /></span>
+            <span className="hidden sm:flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-white/20 inline-block" />{agents.filter(a => a.status === 'idle').length} <PT k="Anchored" className="border-0" /></span>
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden sm:inline opacity-30" title="Average Quality Score"><PT k="Morale" className="border-0" />: {(() => { const s = agents.filter(a => a.score !== null); return s.length ? Math.round(s.reduce((t, a) => t + (a.score || 0), 0) / s.length) : '—' })()}</span>
@@ -170,7 +233,7 @@ export default function Dashboard() {
               </span>
             )}
             {totalSpend > todaySpend && totalSpend > 0 && (
-              <span className="hidden sm:inline tabular-nums font-mono opacity-30">${totalSpend.toFixed(2)} total</span>
+              <button onClick={() => setShowCostDashboard(true)} className="hidden sm:inline tabular-nums font-mono opacity-30 hover:opacity-60 transition-all" title="Open cost dashboard (Ctrl+Shift+C)">${totalSpend.toFixed(2)} total</button>
             )}
             <span className={`hidden sm:inline text-white/15 ${pirateFont}`}>Fleet · localhost:4000</span>
           </div>
@@ -178,13 +241,16 @@ export default function Dashboard() {
       </div>
 
       {/* Modals */}
-      <ErrorBoundary label="Modal" onDismiss={() => { setShowRoadmap(false); setShowAdd(false); setShowDiscover(false); setShowQr(false); setShowQmChat(false) }}>
+      <ErrorBoundary label="Modal" onDismiss={() => { setShowRoadmap(false); setShowAdd(false); setShowDiscover(false); setShowQr(false); setShowQmChat(false); setShowCostDashboard(false) }}>
         {showRoadmap && <RoadmapModal onClose={() => setShowRoadmap(false)} />}
         {showAdd && <AddAgentModal onClose={() => setShowAdd(false)} />}
         {showDiscover && <DiscoverModal onClose={() => setShowDiscover(false)} />}
         {showQr && <QrModal onClose={() => setShowQr(false)} />}
         {showQmChat && <QmChatPanel onClose={() => setShowQmChat(false)} onShowAdd={() => setShowAdd(true)} />}
+        {showCostDashboard && <CostDashboardModal onClose={() => setShowCostDashboard(false)} />}
       </ErrorBoundary>
+
+      <ToastProvider />
     </div>
   )
 }

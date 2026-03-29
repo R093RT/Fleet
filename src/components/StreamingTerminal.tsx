@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useStore, type Agent } from '@/lib/store'
-import { parseScore } from '@/lib/utils'
+import { detectKeywords, type KeywordMatch } from '@/lib/keywords'
+import { checkBudgetGates, buildEffectivePrompt, createWorktreeIfNeeded, handleResultMessage, type IterState } from '@/lib/stream-helpers'
 import { SessionStatsBar } from './SessionStatsBar'
 import { PT } from './PirateTerm'
 import { usePirateText } from '@/hooks/usePirateMode'
+import { useToast } from '@/lib/toast-store'
 
 interface StreamMessage {
   type: 'assistant' | 'result' | 'system' | 'tool_result' | 'text' | 'stderr' | 'done' | 'error'
@@ -33,11 +35,87 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const iterRef = useRef<{ mode: 'rating' | 'improving'; round: number } | null>(null)
+  const iterRef = useRef<IterState | null>(null)
   const pendingPromptRef = useRef<string | null>(null)
   const iterCancelRef = useRef(false)
+  const [showScrollPill, setShowScrollPill] = useState(false)
+  const [detectedKeywords, setDetectedKeywords] = useState<KeywordMatch[]>([])
+  const [termHeight, setTermHeight] = useState(256)
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const { success: toastSuccess } = useToast()
 
   const scrollToBottom = () => scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+    setShowScrollPill(!atBottom)
+  }, [])
+
+  const handleClear = useCallback(() => {
+    setLiveOutput([])
+    setLastAssistantText(null)
+  }, [])
+
+  const handleCopyLast = useCallback(() => {
+    if (lastAssistantText) {
+      void navigator.clipboard.writeText(lastAssistantText)
+      toastSuccess('Copied to clipboard')
+    }
+  }, [lastAssistantText, toastSuccess])
+
+  // Ctrl+F search within terminal
+  useEffect(() => {
+    const el = scrollRef.current?.parentElement
+    if (!el) return
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        e.stopPropagation()
+        setShowSearch(v => !v)
+        setTimeout(() => searchInputRef.current?.focus(), 50)
+      }
+      if (e.key === 'Escape' && showSearch) {
+        setShowSearch(false)
+        setSearchQuery('')
+      }
+    }
+    el.addEventListener('keydown', handler)
+    return () => el.removeEventListener('keydown', handler)
+  }, [showSearch])
+
+  // Drag-to-resize terminal
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = termHeight
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientY - startY
+      setTermHeight(Math.max(128, Math.min(800, startH + delta)))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [termHeight])
+
+  // Highlight search matches in text
+  const highlightText = useCallback((text: string) => {
+    if (!searchQuery || !showSearch) return text
+    const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const parts = text.split(new RegExp(`(${escaped})`, 'gi'))
+    if (parts.length === 1) return text
+    return parts.map((part, i) =>
+      part.toLowerCase() === searchQuery.toLowerCase()
+        ? <mark key={i} className="bg-amber/30 text-white rounded px-0.5">{part}</mark>
+        : part
+    )
+  }, [searchQuery, showSearch])
 
   const sendPrompt = async (explicitPrompt?: string) => {
     const prompt = explicitPrompt ?? input.trim()
@@ -46,53 +124,31 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
     // Read fresh state to avoid stale prop issues
     const freshState = useStore.getState()
     const freshAgent = freshState.agents.find(a => a.id === agent.id)
-    const agentBudgetCap = freshAgent?.budgetCap ?? agent.budgetCap
-    const agentSessionCost = freshAgent?.sessionCost ?? agent.sessionCost
 
-    // Hard budget gate — block sends if per-agent cap exceeded
-    if (agentBudgetCap != null && agentSessionCost >= agentBudgetCap) {
-      appendMessage(agent.id, {
-        id: `msg-${Date.now()}-bg`,
-        role: 'system',
-        content: `🚫 Blocked — budget cap $${agentBudgetCap.toFixed(2)} reached ($${agentSessionCost.toFixed(4)} used). Reset session or raise cap.`,
-        timestamp: Date.now(),
-      })
+    // Budget gates (extracted)
+    const budgetCheck = checkBudgetGates(
+      freshAgent?.budgetCap ?? agent.budgetCap,
+      freshAgent?.sessionCost ?? agent.sessionCost,
+      freshState.dailyBudgetCap,
+      freshState.dailySpend,
+    )
+    if (budgetCheck.blocked) {
+      appendMessage(agent.id, { id: `msg-${Date.now()}-bg`, role: 'system', content: budgetCheck.message!, timestamp: Date.now() })
       return
     }
 
-    // Hard daily budget gate — block sends if fleet-wide daily cap exceeded
-    const { dailyBudgetCap, dailySpend } = freshState
-    if (dailyBudgetCap != null) {
-      const today = new Date().toISOString().slice(0, 10)
-      const todaySpend = dailySpend[today] ?? 0
-      if (todaySpend >= dailyBudgetCap) {
-        appendMessage(agent.id, {
-          id: `msg-${Date.now()}-dg`,
-          role: 'system',
-          content: `🚫 Blocked — daily fleet budget $${dailyBudgetCap.toFixed(2)} reached ($${todaySpend.toFixed(4)} spent today). Raise daily cap to continue.`,
-          timestamp: Date.now(),
-        })
-        return
-      }
-    }
+    // Atomic spawn lock — check+set via store to prevent cross-instance races
+    if (freshAgent?.isStreaming) return
+    useStore.getState().updateAgent(agent.id, { isStreaming: true })
 
     if (!explicitPrompt) setInput('')
     iterCancelRef.current = false
     setStreaming(true)
     setLiveOutput([])
 
-    appendMessage(agent.id, {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content: prompt,
-      timestamp: Date.now(),
-    })
-
+    appendMessage(agent.id, { id: `msg-${Date.now()}`, role: 'user', content: prompt, timestamp: Date.now() })
     updateAgent(agent.id, {
-      status: 'running',
-      lastUpdate: Date.now(),
-      isStreaming: true,
-      // Record when the session started (only on first ever send)
+      status: 'running', lastUpdate: Date.now(), isStreaming: true,
       ...(agent.sessionStartedAt == null ? { sessionStartedAt: Date.now() } : {}),
     })
 
@@ -101,64 +157,16 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
       Notification.requestPermission()
     }
 
-    // Inject roadmap into first prompt for quartermaster agents or agents with injectRoadmap enabled
-    let effectivePrompt = prompt
-    if (!agent.sessionId && (agent.agentType === 'quartermaster' || agent.injectRoadmap)) {
-      try {
-        const r = await fetch('/api/roadmap')
-        const rd = await r.json()
-        if (rd.exists && rd.content) {
-          effectivePrompt = `[ROADMAP]\n${rd.content as string}\n\n[TASK]\n${prompt}`
-          appendMessage(agent.id, {
-            id: `msg-${Date.now()}-ri`,
-            role: 'system',
-            content: `📖 Roadmap injected (${(rd.content.length / 1000).toFixed(1)}k chars)`,
-            timestamp: Date.now(),
-          })
-        }
-      } catch (e) {
-        console.warn('Roadmap injection failed:', e instanceof Error ? e.message : String(e))
-      }
+    // Injection pipeline (extracted)
+    const { effectivePrompt, messages: injMsgs, agentUpdates: kwUpdates } = await buildEffectivePrompt(prompt, agent)
+    for (const m of injMsgs) {
+      appendMessage(agent.id, { ...m, role: 'system', timestamp: Date.now() })
     }
+    if (Object.keys(kwUpdates).length > 0) updateAgent(agent.id, kwUpdates)
 
-    // Inject vault context for agents with injectVault enabled
-    if (!agent.sessionId && agent.injectVault) {
-      try {
-        const v = await fetch('/api/vault')
-        const vd = await v.json()
-        if (vd.exists && vd.content) {
-          effectivePrompt = `[VAULT CONTEXT]\n${vd.content as string}\n\n${effectivePrompt}`
-          appendMessage(agent.id, {
-            id: `msg-${Date.now()}-vi`,
-            role: 'system',
-            content: `📚 Vault context injected (${((vd.content as string).length / 1000).toFixed(1)}k chars)`,
-            timestamp: Date.now(),
-          })
-        }
-      } catch (e) {
-        console.warn('Vault injection failed:', e instanceof Error ? e.message : String(e))
-      }
-    }
-
-    // Resolve effective working path — create a worktree on first spawn
-    let effectivePath = agent.worktreePath || agent.path
-    if (!agent.worktreePath) {
-      try {
-        const wtRes = await fetch('/api/worktree', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentId: agent.id, repoPath: agent.path }),
-        })
-        const wt = await wtRes.json()
-        if (wt.worktreePath) {
-          updateAgent(agent.id, { worktreePath: wt.worktreePath, worktreeBranch: wt.branchName })
-          effectivePath = wt.worktreePath
-        }
-      } catch (e) {
-        console.warn('Worktree creation failed:', e instanceof Error ? e.message : String(e))
-      }
-      // If worktree creation fails (not a git repo, etc.) we fall back to agent.path
-    }
+    // Worktree creation (extracted)
+    const { effectivePath, worktreeUpdate } = await createWorktreeIfNeeded(agent)
+    if (worktreeUpdate) updateAgent(agent.id, worktreeUpdate)
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -168,10 +176,9 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          agentId: agent.id,
-          repoPath: effectivePath,
-          prompt: effectivePrompt,
+          agentId: agent.id, repoPath: effectivePath, prompt: effectivePrompt,
           sessionId: agent.sessionId,
+          ...(agent.model !== 'default' ? { model: agent.model } : {}),
         }),
         signal: controller.signal,
       })
@@ -195,155 +202,66 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
-          const data = line.slice(6)
           try {
-            const msg: StreamMessage = JSON.parse(data)
+            const msg: StreamMessage = JSON.parse(line.slice(6))
             setLiveOutput(prev => [...prev, msg])
             scrollToBottom()
 
-            // Update session ID
-            if (msg.sessionId) {
-              updateAgent(agent.id, { sessionId: msg.sessionId })
-            }
+            if (msg.sessionId) updateAgent(agent.id, { sessionId: msg.sessionId })
 
-            // Handle completion — accumulate session stats
             if (msg.type === 'result') {
               const finalText = msg.text || ''
               setLastAssistantText(finalText)
-              appendMessage(agent.id, {
-                id: `msg-${Date.now()}`,
-                role: 'assistant',
-                content: finalText,
-                timestamp: Date.now(),
+              appendMessage(agent.id, { id: `msg-${Date.now()}`, role: 'assistant', content: finalText, timestamp: Date.now() })
+
+              // Fresh state reads to avoid stale closures
+              const fs = useStore.getState().agents.find(a => a.id === agent.id)
+              const result = handleResultMessage({
+                finalText, msg,
+                prevCost: fs?.sessionCost ?? agent.sessionCost ?? 0,
+                prevTurns: fs?.sessionTurns ?? agent.sessionTurns ?? 0,
+                prevTokens: fs?.sessionTokens ?? agent.sessionTokens ?? 0,
+                budgetCap: fs?.budgetCap ?? agent.budgetCap,
+                autoIterate: fs?.autoIterate ?? agent.autoIterate,
+                iterateThreshold: fs?.iterateThreshold ?? agent.iterateThreshold,
+                iterateMaxRounds: fs?.iterateMaxRounds ?? agent.iterateMaxRounds,
+                iterState: iterRef.current, agentName: agent.name,
               })
 
-              // Read fresh state to avoid stale closure during auto-iterate
-              const freshStats = useStore.getState().agents.find(a => a.id === agent.id)
-              const prevCost = freshStats?.sessionCost ?? agent.sessionCost ?? 0
-              const prevTurns = freshStats?.sessionTurns ?? agent.sessionTurns ?? 0
-              const prevTokens = freshStats?.sessionTokens ?? agent.sessionTokens ?? 0
+              // Apply stats
+              updateAgent(agent.id, { status: 'done', lastUpdate: Date.now(), isStreaming: false, ...result.statsUpdate })
+              if (msg.cost) useStore.getState().addDailySpend(new Date().toISOString().slice(0, 10), msg.cost)
+              if (result.score != null) updateAgent(agent.id, { score: result.score, iterationScore: result.score })
 
-              const addedTokens = (msg.inputTokens ?? 0) + (msg.outputTokens ?? 0)
-              const newCost = prevCost + (msg.cost || 0)
-              updateAgent(agent.id, {
-                status: 'done',
-                lastUpdate: Date.now(),
-                isStreaming: false,
-                sessionCost: newCost,
-                sessionTurns: prevTurns + 1,
-                sessionTokens: addedTokens > 0
-                  ? prevTokens + addedTokens
-                  : prevTokens,
-              })
-
-              // Track daily spend
-              if (msg.cost) {
-                const today = new Date().toISOString().slice(0, 10)
-                useStore.getState().addDailySpend(today, msg.cost)
-              }
-
-              // Hard budget cap — kill the process when exceeded (read fresh cap in case user changed it)
-              const currentCap = useStore.getState().agents.find(a => a.id === agent.id)?.budgetCap ?? agent.budgetCap
-              if (currentCap != null && newCost >= currentCap) {
-                appendMessage(agent.id, {
-                  id: `msg-${Date.now()}-bc`,
-                  role: 'system',
-                  content: `🚫 Budget cap $${currentCap.toFixed(2)} reached ($${newCost.toFixed(4)} used). Agent stopped. Reset session or raise cap to continue.`,
-                  timestamp: Date.now(),
-                })
-                // Kill the running process
-                fetch('/api/kill', {
-                  method: 'DELETE',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ agentId: agent.id }),
-                }).catch(() => {})
-                // Cancel auto-iteration
-                iterRef.current = null
-                pendingPromptRef.current = null
-                iterCancelRef.current = true
+              // Budget exceeded → kill
+              if (result.budgetExceeded) {
+                if (result.budgetMessage) appendMessage(agent.id, { id: `msg-${Date.now()}-bc`, role: 'system', content: result.budgetMessage, timestamp: Date.now() })
+                fetch('/api/kill', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: agent.id }) }).catch(() => {})
+                iterRef.current = null; pendingPromptRef.current = null; iterCancelRef.current = true
                 updateAgent(agent.id, { status: 'error', isStreaming: false, iterationRound: 0 })
-              }
-
-              // Auto-complete first incomplete voyage task for this agent
-              const currentVoyage = useStore.getState().voyage
-              if (currentVoyage) {
-                const firstIncomplete = currentVoyage.tasks.find(t => t.agentId === agent.id && !t.completed)
-                if (firstIncomplete) {
-                  useStore.getState().toggleVoyageTask(firstIncomplete.id)
-                }
-              }
-
-              // Read fresh agent state for auto-iterate config (avoids stale closure)
-              const freshIterAgent = useStore.getState().agents.find(a => a.id === agent.id)
-              const autoIterate = freshIterAgent?.autoIterate ?? agent.autoIterate
-              const iterateThreshold = freshIterAgent?.iterateThreshold ?? agent.iterateThreshold
-              const iterateMaxRounds = freshIterAgent?.iterateMaxRounds ?? agent.iterateMaxRounds
-
-              // Auto-iterate logic (skip if over budget)
-              if (autoIterate && !(currentCap != null && newCost >= currentCap)) {
-                if (iterRef.current === null) {
-                  // First task completion — kick off auto-rating
-                  iterRef.current = { mode: 'rating', round: 1 }
-                  updateAgent(agent.id, { iterationRound: 1 })
-                  pendingPromptRef.current =
-                    'Rate your work from 0–100 and list specific improvements. Format: Score: X/100'
-                  appendMessage(agent.id, { id: `msg-${Date.now()}-ai`, role: 'system', content: '⟳ Auto-iterate: rating quality...', timestamp: Date.now() })
-                } else if (iterRef.current.mode === 'rating') {
-                  const score = parseScore(finalText)
-                  if (score !== null) {
-                    updateAgent(agent.id, { score, iterationScore: score })
-                    if (score < iterateThreshold && iterRef.current.round < iterateMaxRounds) {
-                      const nextRound = iterRef.current.round + 1
-                      iterRef.current = { mode: 'improving', round: nextRound }
-                      updateAgent(agent.id, { iterationRound: nextRound })
-                      pendingPromptRef.current = `Your score was ${score}/100. Improve the specific areas you identified.`
-                      appendMessage(agent.id, { id: `msg-${Date.now()}-ai`, role: 'system', content: `⟳ Auto-iterate: score ${score}/100 < ${iterateThreshold}. Improving (round ${nextRound}/${iterateMaxRounds})...`, timestamp: Date.now() })
-                    } else {
-                      iterRef.current = null
-                      updateAgent(agent.id, { iterationRound: 0 })
-                      appendMessage(agent.id, { id: `msg-${Date.now()}-ai`, role: 'system', content: `✓ Auto-iterate done. Final score: ${score}/100`, timestamp: Date.now() })
-                      if ('Notification' in window && Notification.permission === 'granted') {
-                        new Notification(`${agent.name} finished (${score}/100)`, {
-                          body: finalText.slice(0, 100),
-                          icon: '/favicon.ico',
-                          tag: agent.id,
-                        })
-                      }
-                    }
-                  } else {
-                    iterRef.current = null
-                    updateAgent(agent.id, { iterationRound: 0 })
-                  }
-                } else if (iterRef.current.mode === 'improving') {
-                  // Re-rate after the improvement pass
-                  iterRef.current = { mode: 'rating', round: iterRef.current.round }
-                  pendingPromptRef.current = 'Rate your updated work from 0–100. Format: Score: X/100'
-                  appendMessage(agent.id, { id: `msg-${Date.now()}-ai`, role: 'system', content: '⟳ Auto-iterate: re-rating after improvements...', timestamp: Date.now() })
-                }
               } else {
-                // Normal completion — send desktop notification
-                if ('Notification' in window && Notification.permission === 'granted') {
-                  new Notification(`${agent.name} finished`, {
-                    body: finalText.slice(0, 100) + (finalText.length > 100 ? '...' : ''),
-                    icon: '/favicon.ico',
-                    tag: agent.id,
-                  })
+                // Auto-iterate state
+                iterRef.current = result.nextIterState
+                pendingPromptRef.current = result.pendingPrompt
+                updateAgent(agent.id, { iterationRound: result.nextIterState?.round ?? 0 })
+                if (result.iterMessage) appendMessage(agent.id, { id: `msg-${Date.now()}-ai`, role: 'system', content: result.iterMessage, timestamp: Date.now() })
+                if (result.notification && 'Notification' in window && Notification.permission === 'granted') {
+                  new Notification(result.notification.title, { body: result.notification.body, icon: '/favicon.ico', tag: agent.id })
                 }
+              }
+
+              // Auto-complete voyage task
+              const voyage = useStore.getState().voyage
+              if (voyage) {
+                const task = voyage.tasks.find(t => t.agentId === agent.id && !t.completed)
+                if (task) useStore.getState().toggleVoyageTask(task.id)
               }
             }
 
-            if (msg.type === 'done') {
-              updateAgent(agent.id, { isStreaming: false })
-            }
-
+            if (msg.type === 'done') updateAgent(agent.id, { isStreaming: false })
             if (msg.type === 'error') {
               updateAgent(agent.id, { status: 'error', isStreaming: false, lastUpdate: Date.now() })
-              appendMessage(agent.id, {
-                id: `msg-${Date.now()}`,
-                role: 'system',
-                content: `Error: ${msg.content}`,
-                timestamp: Date.now(),
-              })
+              appendMessage(agent.id, { id: `msg-${Date.now()}`, role: 'system', content: `Error: ${msg.content}`, timestamp: Date.now() })
             }
           } catch (e) {
             console.warn('Failed to parse SSE line:', e instanceof Error ? e.message : String(e))
@@ -352,18 +270,12 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
       }
     } catch (e: unknown) {
       if (!(e instanceof Error) || e.name !== 'AbortError') {
-        appendMessage(agent.id, {
-          id: `msg-${Date.now()}`,
-          role: 'system',
-          content: `Connection error: ${e instanceof Error ? e.message : String(e)}`,
-          timestamp: Date.now(),
-        })
+        appendMessage(agent.id, { id: `msg-${Date.now()}`, role: 'system', content: `Connection error: ${e instanceof Error ? e.message : String(e)}`, timestamp: Date.now() })
         updateAgent(agent.id, { status: 'error', isStreaming: false })
       }
     } finally {
       setStreaming(false)
       abortRef.current = null
-      // Auto-iterate: schedule next prompt
       if (pendingPromptRef.current) {
         const next = pendingPromptRef.current
         pendingPromptRef.current = null
@@ -458,22 +370,50 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
     <div className={`border-t border-white/5 ${fillHeight ? 'flex-1 flex flex-col min-h-0' : ''}`}>
       <SessionStatsBar agent={agent} streaming={streaming} />
 
+      {/* Terminal actions */}
+      <div className="flex items-center gap-1 px-3 py-1 border-b border-white/5 bg-black/20">
+        <button onClick={handleClear} className="text-xs text-white/20 hover:text-white/50 transition-all px-1.5 py-0.5 rounded hover:bg-white/5" title="Clear terminal output" aria-label="Clear terminal output">Clear</button>
+        {lastAssistantText && (
+          <button onClick={handleCopyLast} className="text-xs text-white/20 hover:text-white/50 transition-all px-1.5 py-0.5 rounded hover:bg-white/5" title="Copy last response" aria-label="Copy last response">Copy</button>
+        )}
+      </div>
+
+      {/* Search bar */}
+      {showSearch && (
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-white/5 bg-black/20">
+          <span className="text-xs text-white/30">Find:</span>
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') { setShowSearch(false); setSearchQuery('') } }}
+            className="flex-1 text-xs bg-transparent border-b border-white/10 outline-none text-white/70 placeholder:text-white/15 py-0.5"
+            placeholder="Search terminal output..."
+          />
+          <button onClick={() => { setShowSearch(false); setSearchQuery('') }} className="text-xs text-white/20 hover:text-white/50" aria-label="Close search">✕</button>
+        </div>
+      )}
+
       {/* Message history + live stream */}
-      <div ref={scrollRef} className={`${fillHeight ? 'flex-1 min-h-0' : 'h-64'} overflow-y-auto p-3 space-y-1.5 bg-black/30 font-mono text-xs`}>
+      <div ref={scrollRef} onScroll={handleScroll} role="log" aria-live="polite" className={`${fillHeight ? 'flex-1 min-h-0' : ''} overflow-y-auto p-3 space-y-1.5 bg-black/30 font-mono text-xs relative`} style={fillHeight ? undefined : { height: termHeight }}>
         {agent.messages.length === 0 && liveOutput.length === 0 && (
           <div className="opacity-15 text-center py-12">{t(`Give orders to start this pirate in ${agent.repo}...`, `Enter a prompt to start this agent in ${agent.repo}...`)}</div>
         )}
 
         {/* Historical messages */}
-        {agent.messages.map(m => (
-          <div key={m.id} className={m.role === 'user' ? 'text-amber' : m.role === 'system' ? 'text-white/25 italic' : 'text-white/70'}>
-            <span className="opacity-30 mr-2 tabular-nums">
-              {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-            <span className="opacity-40 mr-1">{m.role === 'user' ? '>' : m.role === 'system' ? '#' : '←'}</span>
-            <span className="whitespace-pre-wrap break-all">{m.content.slice(0, 3000)}{m.content.length > 3000 ? '\n...(truncated)' : ''}</span>
-          </div>
-        ))}
+        {agent.messages.map(m => {
+          const isError = m.role === 'system' && (m.content.startsWith('🚫') || m.content.startsWith('Error:') || m.content.startsWith('Connection error:'))
+          return (
+            <div key={m.id} className={`${m.role === 'user' ? 'text-amber' : m.role === 'system' ? 'text-white/25 italic' : 'text-white/70'} ${isError ? 'bg-red-500/[0.06] border border-red-500/10 rounded px-2 py-1 text-red-400/80' : ''}`}>
+              <span className="opacity-30 mr-2 tabular-nums">
+                {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+              <span className="opacity-40 mr-1">{m.role === 'user' ? '>' : m.role === 'system' ? '#' : '←'}</span>
+              <span className="whitespace-pre-wrap break-all">{highlightText(m.content.slice(0, 3000))}{m.content.length > 3000 ? '\n...(truncated)' : ''}</span>
+            </div>
+          )
+        })}
 
         {/* Live streaming output */}
         {liveOutput.map((msg, i) => (
@@ -504,7 +444,7 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
               </div>
             )}
             {msg.type === 'stderr' && <span className="ml-2">stderr: {msg.content}</span>}
-            {msg.type === 'error' && <span className="text-red-400">✗ {msg.content}</span>}
+            {msg.type === 'error' && <span className="text-red-400 bg-red-500/[0.06] border border-red-500/10 rounded px-2 py-1 inline-block">✗ {msg.content}</span>}
           </div>
         ))}
 
@@ -516,13 +456,55 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
         )}
       </div>
 
+      {/* Scroll to bottom pill */}
+      {showScrollPill && (
+        <div className="relative">
+          <button
+            onClick={scrollToBottom}
+            className="absolute -top-8 left-1/2 -translate-x-1/2 z-10 text-xs px-3 py-1 rounded-full bg-white/10 text-white/50 hover:text-white/80 border border-white/10 backdrop-blur-sm transition-all hover:bg-white/15"
+            aria-label="Scroll to latest output"
+          >
+            ↓ Latest
+          </button>
+        </div>
+      )}
+
+      {/* Drag handle for resizing terminal */}
+      {!fillHeight && (
+        <div
+          onMouseDown={handleDragStart}
+          className="h-1.5 cursor-ns-resize bg-white/[0.03] hover:bg-white/[0.08] transition-colors border-y border-white/5 flex items-center justify-center"
+          title="Drag to resize terminal"
+          aria-label="Resize terminal"
+          role="separator"
+        >
+          <span className="w-8 h-0.5 rounded-full bg-white/10" />
+        </div>
+      )}
+
+      {/* Keyword badges */}
+      {detectedKeywords.length > 0 && (
+        <div className="flex items-center gap-1 px-3 py-1 border-t border-white/5">
+          {detectedKeywords.map(m => (
+            <span key={m.keyword}
+              className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+              style={{ backgroundColor: m.color + '20', color: m.color, border: `1px solid ${m.color}33` }}>
+              {m.label}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Input */}
       <div className="flex items-center gap-2 p-2 border-t border-white/5">
         <input
           ref={inputRef}
           type="text"
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={e => {
+            setInput(e.target.value)
+            setDetectedKeywords(detectKeywords(e.target.value))
+          }}
           onKeyDown={e => e.key === 'Enter' && void sendPrompt()}
           placeholder={agent.sessionId ? t('Follow-up orders (session active)...', 'Follow-up prompt (session active)...') : t('Give yer orders, Captain...', 'Enter your prompt...')}
           disabled={streaming}
@@ -586,12 +568,12 @@ export function StreamingTerminal({ agent, fillHeight, autoFocus }: { agent: Age
         {streaming ? (
           <button onClick={stopAgent}
             className="text-xs px-3 py-1.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-all"
-            title="Stop Agent">
+            title="Stop Agent" aria-label="Stop agent">
             <PT k="All Stop!" className="border-0" />
           </button>
         ) : (
           <button onClick={() => void sendPrompt()} disabled={!input.trim()}
-            className="btn-primary" title="Send Prompt">
+            className="btn-primary" title="Send Prompt" aria-label="Send prompt">
             <PT k="Fire!" className="border-0" />
           </button>
         )}

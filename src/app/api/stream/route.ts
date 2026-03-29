@@ -1,12 +1,13 @@
-import { NextRequest } from 'next/server'
+import type { NextRequest } from 'next/server'
 import { spawn } from 'child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import path from 'path'
 import { z } from 'zod'
-import { DEFAULT_ALLOWED_TOOLS } from '@/lib/tools'
+import { DEFAULT_ALLOWED_TOOLS, modelCliArgs } from '@/lib/tools'
 import { liveProcesses } from '@/lib/process-registry'
 import { SafeId, SafeSessionId, SafeTool, AbsolutePath } from '@/lib/validate'
-
+import { formatSSEMessage } from '@/lib/stream-format'
+import { atomicWriteFileSync, safeReadJson } from '@/lib/atomic-write'
 export const dynamic = 'force-dynamic'
 
 const StreamRequestSchema = z.object({
@@ -15,6 +16,7 @@ const StreamRequestSchema = z.object({
   prompt: z.string().min(1).max(500_000),
   sessionId: SafeSessionId.nullable().optional(),
   allowedTools: z.array(SafeTool).optional(),
+  model: z.enum(['default', 'haiku', 'sonnet', 'opus']).optional(),
 })
 
 interface SessionFile {
@@ -33,7 +35,7 @@ function writeSessionFile(agentId: string, update: { sessionId: string | null; c
     mkdirSync(dir, { recursive: true })
     const filePath = path.join(dir, `${agentId}.json`)
 
-    let existing: SessionFile = {
+    const existing: SessionFile = safeReadJson<SessionFile>(filePath) ?? {
       agentId,
       sessionId: update.sessionId,
       startedAt: Date.now(),
@@ -41,12 +43,6 @@ function writeSessionFile(agentId: string, update: { sessionId: string | null; c
       totalCost: 0,
       totalRuns: 0,
       totalTokens: 0,
-    }
-
-    if (existsSync(filePath)) {
-      try { existing = JSON.parse(readFileSync(filePath, 'utf-8')) as SessionFile } catch (e) {
-        console.warn('Failed to parse session file:', e instanceof Error ? e.message : String(e))
-      }
     }
 
     const updated: SessionFile = {
@@ -58,7 +54,7 @@ function writeSessionFile(agentId: string, update: { sessionId: string | null; c
       totalTokens: existing.totalTokens + update.tokens,
     }
 
-    writeFileSync(filePath, JSON.stringify(updated, null, 2))
+    atomicWriteFileSync(filePath, JSON.stringify(updated, null, 2))
   } catch (e) {
     console.warn('Failed to write session file:', e instanceof Error ? e.message : String(e))
   }
@@ -72,7 +68,7 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     })
   }
-  const { agentId, repoPath, prompt, sessionId, allowedTools } = parsed.data
+  const { agentId, repoPath, prompt, sessionId, allowedTools, model } = parsed.data
 
   if (!existsSync(repoPath)) {
     return new Response(JSON.stringify({ error: `Path not found: ${repoPath}` }), {
@@ -89,6 +85,7 @@ export async function POST(req: NextRequest) {
     '--output-format', 'stream-json',
     '--max-turns', '50',
     ...tools.flatMap(t => ['--allowedTools', t]),
+    ...modelCliArgs(model),
   ]
 
   // For resumed sessions, pass prompt via -p (guaranteed CLI support).
@@ -101,6 +98,13 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream({
     start(controller) {
+      // Kill existing process for this agent if any (prevent orphans on double-send)
+      const existing = liveProcesses.get(agentId)
+      if (existing) {
+        try { existing.kill() } catch {}
+        liveProcesses.delete(agentId)
+      }
+
       const proc = spawn('claude', args, {
         cwd: repoPath,
         env: { ...process.env },
@@ -208,78 +212,3 @@ export async function POST(req: NextRequest) {
   })
 }
 
-interface ContentBlock {
-  type: string
-  text?: string
-  name?: string
-  input?: unknown
-}
-
-interface ClaudeStreamMessage {
-  type: string
-  message?: { content: ContentBlock[] }
-  result?: string
-  subtype?: string
-  cost_usd?: number
-  cost?: number
-  session_id?: string
-  duration_ms?: number
-  content?: unknown
-  usage?: { input_tokens?: number; output_tokens?: number }
-}
-
-function formatSSEMessage(msg: ClaudeStreamMessage, agentId: string) {
-  // Claude Code stream-json emits various message types
-  if (msg.type === 'assistant' && msg.message?.content) {
-    const textBlocks = msg.message.content
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text ?? '')
-      .join('')
-
-    const toolUses = msg.message.content
-      .filter((b) => b.type === 'tool_use')
-      .map((b) => ({ tool: b.name ?? '', input: b.input }))
-
-    return {
-      type: 'assistant',
-      agentId,
-      text: textBlocks,
-      toolUses,
-      sessionId: msg.session_id || null,
-    }
-  }
-
-  if (msg.type === 'result') {
-    return {
-      type: 'result',
-      agentId,
-      text: msg.result || '',
-      subtype: msg.subtype, // 'success', 'error_max_turns', etc.
-      cost: msg.cost_usd || msg.cost || null,
-      sessionId: msg.session_id || null,
-      duration: msg.duration_ms || null,
-      inputTokens: msg.usage?.input_tokens ?? null,
-      outputTokens: msg.usage?.output_tokens ?? null,
-    }
-  }
-
-  if (msg.type === 'system') {
-    return {
-      type: 'system',
-      agentId,
-      subtype: msg.subtype,
-      sessionId: msg.session_id || null,
-    }
-  }
-
-  // Tool results
-  if (msg.type === 'tool_result') {
-    return {
-      type: 'tool_result',
-      agentId,
-      content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content).slice(0, 500),
-    }
-  }
-
-  return null
-}

@@ -47,6 +47,25 @@ body {
   transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, opacity 0.3s ease;
 }
 
+/* Focus ring — amber for keyboard navigation, hidden for mouse */
+:focus-visible {
+  outline: 2px solid #d4a843;
+  outline-offset: 2px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @layer components {
   .input-field {
     @apply text-sm bg-white/[0.04] border rounded-md px-3 py-1.5
@@ -92,7 +111,7 @@ body {
     @apply fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm;
   }
   .modal-content {
-    @apply bg-surface-raised rounded-xl shadow-2xl animate-scale-in;
+    @apply bg-surface-raised rounded-xl shadow-2xl animate-scale-in max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)];
     border: 1px solid rgba(212,168,67,0.10);
   }
   .pirate-border {

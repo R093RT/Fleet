@@ -6,6 +6,7 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     exclude: ['**/node_modules/**', '.fleet/worktrees/**'],
+    setupFiles: ['./src/test-setup.ts'],
     coverage: { provider: 'v8', reporter: ['text', 'html'] },
   },
   resolve: {

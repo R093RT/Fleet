@@ -30,7 +30,7 @@ function StatusIcon({ status, size = 12 }: { status: AgentStatus; size?: number 
 export function StatusDot({ status }: { status: AgentStatus }) {
   const opt = STATUS_OPTIONS.find(s => s.value === status) ?? STATUS_FALLBACK
   return (
-    <span className="relative flex items-center gap-1.5" style={{ color: opt.color }}>
+    <span className="relative flex items-center gap-1.5" style={{ color: opt.color }} role="status" aria-label={`Status: ${opt.label}`}>
       <StatusIcon status={status} size={14} />
       {opt.pulse && <span className="absolute -left-0.5 -top-0.5 block w-4 h-4 rounded-full animate-ping opacity-20" style={{ backgroundColor: opt.color }} />}
     </span>

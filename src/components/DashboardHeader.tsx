@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import { useStore, type Agent } from '@/lib/store'
 import { PT } from './PirateTerm'
 import { AnchorIcon, CompassRose } from './PirateDecorations'
 import { STATUS_OPTIONS } from './atoms'
 import { usePirateClass } from '@/hooks/usePirateMode'
+import { useToast } from '@/lib/toast-store'
 
 interface DashboardHeaderProps {
   agents: Agent[]
@@ -46,18 +46,12 @@ export function DashboardHeader({
   const pirateFont = usePirateClass()
   const pirateMode = useStore(s => s.pirateMode)
   const setPirateMode = useStore(s => s.setPirateMode)
-  const [toast, setToast] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 2000)
-    return () => clearTimeout(t)
-  }, [toast])
+  const { info } = useToast()
 
   const handleToggle = () => {
     const next = !pirateMode
     setPirateMode(next)
-    setToast(next ? 'Arr! Pirate mode enabled' : 'Professional mode enabled')
+    info(next ? 'Arr! Pirate mode enabled' : 'Professional mode enabled')
   }
 
   return (
@@ -114,13 +108,15 @@ export function DashboardHeader({
             </button>
             <button onClick={onShowQr}
               className="btn-ghost px-2 hidden md:inline-flex"
-              title="Open Fleet on mobile">
+              title="Open Fleet on mobile"
+              aria-label="QR code for mobile access">
               📱
             </button>
             <button
               onClick={handleToggle}
               className="btn-ghost px-2.5 text-xs hidden sm:inline-flex items-center gap-1.5"
-              title={pirateMode ? 'Switch to professional mode' : 'Switch to pirate mode'}>
+              title={pirateMode ? 'Switch to professional mode' : 'Switch to pirate mode'}
+              aria-label={pirateMode ? 'Switch to professional mode' : 'Switch to pirate mode'}>
               {pirateMode ? '🏴‍☠️' : '💼'}
             </button>
           </div>
@@ -139,14 +135,6 @@ export function DashboardHeader({
         </div>
       </div>
 
-      {/* Mode switch toast */}
-      {toast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
-          <div className="px-4 py-2 rounded-lg bg-surface-raised border border-white/10 text-xs text-white/70 shadow-lg">
-            {toast}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -4,10 +4,12 @@ import { useState, useEffect } from 'react'
 import { useStore } from '@/lib/store'
 import { PT } from './PirateTerm'
 import { usePirateClass } from '@/hooks/usePirateMode'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 
 export function RoadmapModal({ onClose }: { onClose: () => void }) {
   const { roadmap, setRoadmap } = useStore()
   const pirateFont = usePirateClass()
+  const trapRef = useFocusTrap<HTMLDivElement>()
   const [content, setContent] = useState(roadmap)
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -46,12 +48,12 @@ export function RoadmapModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content w-full max-w-4xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="modal-title-roadmap">
+      <div ref={trapRef} className="modal-content w-full max-w-4xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08]">
           <div className="flex items-center gap-2">
             <span>🗺️</span>
-            <span className={`text-sm ${pirateFont} text-amber`}><PT k="Treasure Map" /></span>
+            <span id="modal-title-roadmap" className={`text-sm ${pirateFont} text-amber`}><PT k="Treasure Map" /></span>
           </div>
           <div className="flex items-center gap-2">
             {saveMsg && <span className="text-xs opacity-50">{saveMsg}</span>}

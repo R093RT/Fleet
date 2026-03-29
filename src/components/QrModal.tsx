@@ -3,10 +3,12 @@
 import { useState, useEffect } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { usePirateClass, usePirateText } from '@/hooks/usePirateMode'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 
 export function QrModal({ onClose }: { onClose: () => void }) {
   const pirateFont = usePirateClass()
   const t = usePirateText()
+  const trapRef = useFocusTrap<HTMLDivElement>()
   // undefined = loading, null = not found, string = IP address
   const [ip, setIp] = useState<string | null | undefined>(undefined)
   const [copied, setCopied] = useState(false)
@@ -30,11 +32,11 @@ export function QrModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay"
-      onClick={onClose}>
-      <div className="modal-content p-6 w-80 space-y-4"
+      onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="modal-title-qr">
+      <div ref={trapRef} className="modal-content p-6 w-80 space-y-4"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h2 className={`text-sm ${pirateFont} text-amber`}>{t('Spyglass — Remote Access', 'Remote Access')}</h2>
+          <h2 id="modal-title-qr" className={`text-sm ${pirateFont} text-amber`}>{t('Spyglass — Remote Access', 'Remote Access')}</h2>
           <button onClick={onClose} className="text-white/30 hover:text-white/70 text-lg leading-none">×</button>
         </div>
 

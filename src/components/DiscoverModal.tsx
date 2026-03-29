@@ -5,6 +5,8 @@ import { useStore } from '@/lib/store'
 import type { DiscoveredProcess } from '@/app/api/discover/route'
 import { PT } from './PirateTerm'
 import { usePirateClass, usePirateText } from '@/hooks/usePirateMode'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
+import { Spinner } from './Spinner'
 
 // Browser-safe path.basename replacement
 const basename = (p: string) => p.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? p
@@ -68,13 +70,14 @@ export function DiscoverModal({ onClose }: { onClose: () => void }) {
 
   const pirateFont = usePirateClass()
   const t = usePirateText()
+  const trapRef = useFocusTrap<HTMLDivElement>()
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="modal-title-discover">
+      <div ref={trapRef} className="modal-content w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08]">
           <div className="flex items-center gap-2">
-            <span className={`text-sm ${pirateFont} text-amber`}><PT k="Scout" /> — Running Processes</span>
+            <span id="modal-title-discover" className={`text-sm ${pirateFont} text-amber`}><PT k="Scout" /> — Running Processes</span>
             {!loading && <span className="text-xs opacity-30">{processes.length} found</span>}
           </div>
           <div className="flex items-center gap-2">
@@ -88,7 +91,10 @@ export function DiscoverModal({ onClose }: { onClose: () => void }) {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {loading && (
-            <div className="text-center py-12 text-xs opacity-30 animate-pulse">{t('Scouting the seas for claude processes...', 'Scanning for claude processes...')}</div>
+            <div className="flex flex-col items-center justify-center py-12 gap-3 text-xs opacity-30">
+              <Spinner size={24} />
+              <span>{t('Scouting the seas for claude processes...', 'Scanning for claude processes...')}</span>
+            </div>
           )}
 
           {!loading && scanError && (

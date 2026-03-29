@@ -10,14 +10,18 @@ import { StatusDot, ScoreBadge, GitBadge, STATUS_OPTIONS } from './atoms'
 import { Select } from './Select'
 import { PT } from './PirateTerm'
 import { usePirateClass } from '@/hooks/usePirateMode'
+import { useToast } from '@/lib/toast-store'
+import { MergePanel } from './MergePanel'
+import { NotepadPanel } from './NotepadPanel'
 
-export function AgentCard({ agent }: { agent: Agent }) {
+export function AgentCard({ agent, focused }: { agent: Agent; focused?: boolean }) {
   const pirateFont = usePirateClass()
   const { updateAgent, removeAgent, expandedId, setExpanded } = useStore()
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [tab, setTab] = useState<'control' | 'terminal' | 'diff' | 'preview'>('control')
-  const [showConfig, setShowConfig] = useState(false)
+  const [tab, setTab] = useState<'control' | 'terminal' | 'diff' | 'preview' | 'memory'>('control')
+  const [showConfig, setShowConfig] = useState(agent.status === 'idle' && !agent.task)
   const hasBeenExpanded = useRef(false)
+  const { success, warning } = useToast()
 
   const handleKill = async () => {
     await fetch('/api/kill', {
@@ -26,6 +30,7 @@ export function AgentCard({ agent }: { agent: Agent }) {
       body: JSON.stringify({ agentId: agent.id }),
     }).catch((e: unknown) => console.warn('Kill request failed:', e instanceof Error ? e.message : String(e)))
     updateAgent(agent.id, { status: 'idle', isStreaming: false, lastUpdate: Date.now() })
+    warning(`${agent.name} stopped`)
   }
 
   const handleRemove = async () => {
@@ -51,7 +56,14 @@ export function AgentCard({ agent }: { agent: Agent }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agentId: agent.id }),
     }).catch((e: unknown) => console.warn('Screenshot cleanup failed:', e instanceof Error ? e.message : String(e)))
+    // Clean up notepad file
+    fetch('/api/notepad', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: agent.id }),
+    }).catch((e: unknown) => console.warn('Notepad cleanup failed:', e instanceof Error ? e.message : String(e)))
     removeAgent(agent.id)
+    success(`${agent.name} removed`)
   }
 
   const isExpanded = expandedId === agent.id
@@ -60,9 +72,9 @@ export function AgentCard({ agent }: { agent: Agent }) {
 
   return (
     <div className="rounded-lg border transition-all duration-200 overflow-hidden" style={{
-      borderColor: highlight ? '#f59e0b' : 'rgba(255,255,255,0.06)',
+      borderColor: focused ? '#d4a843' : highlight ? '#f59e0b' : 'rgba(255,255,255,0.06)',
       backgroundColor: highlight ? 'rgba(245,158,11,0.03)' : isExpanded ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.02)',
-      boxShadow: highlight ? '0 0 0 1px rgba(245,158,11,0.12)' : isExpanded ? '0 4px 24px rgba(0,0,0,0.3)' : 'none',
+      boxShadow: focused ? '0 0 0 1px rgba(212,168,67,0.3)' : highlight ? '0 0 0 1px rgba(245,158,11,0.12)' : isExpanded ? '0 4px 24px rgba(0,0,0,0.3)' : 'none',
       borderLeftWidth: '3px',
       borderLeftColor: agent.color,
     }}>
@@ -79,6 +91,7 @@ export function AgentCard({ agent }: { agent: Agent }) {
             {agent.sessionId && <span className="text-xs px-1 py-0.5 rounded bg-green-500/10 text-green-500/60">live</span>}
             {agent.worktreeBranch && <span className="text-xs px-1 py-0.5 rounded bg-purple-500/10 text-purple-400/60 font-mono">{agent.worktreeBranch}</span>}
             {agent.agentType === 'quartermaster' && <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400/80">⚓ QM</span>}
+            {agent.model !== 'default' && <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400/70 font-mono">{agent.model}</span>}
             {agent.budgetCap != null && agent.sessionCost >= agent.budgetCap && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium animate-pulse">🚫 stopped</span>
             )}
@@ -109,15 +122,16 @@ export function AgentCard({ agent }: { agent: Agent }) {
           {hasBeenExpanded.current && (
             <>
               {/* Tab bar */}
-              <div className="flex items-center gap-1 px-4 py-1 border-t border-white/[0.06] overflow-x-auto">
-                {(['control', 'terminal', 'diff', 'preview'] as const).map(t => (
+              <div className="flex items-center gap-1 px-4 py-1 border-t border-white/[0.06] overflow-x-auto" role="tablist" aria-label="Agent panels">
+                {(['control', 'terminal', 'diff', 'preview', 'memory'] as const).map(t => (
                   <button key={t} onClick={() => setTab(t)}
+                    role="tab" aria-selected={tab === t}
                     className="text-xs px-2.5 py-1 rounded transition-all capitalize"
                     style={{
                       backgroundColor: tab === t ? 'rgba(255,255,255,0.08)' : 'transparent',
                       color: tab === t ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.3)',
                     }}>
-                    {t === 'terminal' ? '⌘ Terminal' : t === 'preview' ? '👁 Preview' : t === 'diff' ? '± Diff' : '⚙ Control'}
+                    {t === 'terminal' ? '⌘ Terminal' : t === 'preview' ? '👁 Preview' : t === 'diff' ? '± Diff' : t === 'memory' ? '🧠 Memory' : '⚙ Control'}
                   </button>
                 ))}
                 <div className="ml-auto flex items-center gap-2">
@@ -249,6 +263,17 @@ export function AgentCard({ agent }: { agent: Agent }) {
                               { value: 'worker', label: '⚙️ Worker' },
                               { value: 'quartermaster', label: '⚓ Quartermaster' },
                             ]} className="w-36" />
+                          <label className="field-label mb-0">Model</label>
+                          <Select value={agent.model} size="sm"
+                            onChange={v => updateAgent(agent.id, { model: v as Agent['model'] })}
+                            options={[
+                              { value: 'default', label: '🤖 Default' },
+                              { value: 'haiku', label: '⚡ Haiku' },
+                              { value: 'sonnet', label: '🎵 Sonnet' },
+                              { value: 'opus', label: '🎼 Opus' },
+                            ]} className="w-36" />
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
                           {agent.agentType === 'worker' && (
                             <label className="flex items-center gap-1.5 cursor-pointer select-none">
                               <input type="checkbox" checked={agent.injectRoadmap}
@@ -262,6 +287,12 @@ export function AgentCard({ agent }: { agent: Agent }) {
                               onChange={e => updateAgent(agent.id, { injectVault: e.target.checked })}
                               className="accent-emerald-500" />
                             <span className="text-xs opacity-40">Inject Vault</span>
+                          </label>
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input type="checkbox" checked={agent.injectNotepad}
+                              onChange={e => updateAgent(agent.id, { injectNotepad: e.target.checked })}
+                              className="accent-cyan-500" />
+                            <span className="text-xs opacity-40">Inject Notepad</span>
                           </label>
                         </div>
 
@@ -285,6 +316,9 @@ export function AgentCard({ agent }: { agent: Agent }) {
                 </div>
               )}
 
+              {/* Merge panel (control tab, only for worktree agents) */}
+              {tab === 'control' && agent.worktreeBranch && <MergePanel agent={agent} />}
+
               {/* Terminal tab */}
               {tab === 'terminal' && <StreamingTerminal agent={agent} />}
 
@@ -293,6 +327,9 @@ export function AgentCard({ agent }: { agent: Agent }) {
 
               {/* Preview tab */}
               {tab === 'preview' && <PreviewPanel agent={agent} />}
+
+              {/* Memory tab */}
+              {tab === 'memory' && <NotepadPanel agentId={agent.id} />}
             </>
           )}
         </div>
